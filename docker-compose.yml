@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: flyreservation-postgres
+    environment:
+      POSTGRES_USER: flyuser
+      POSTGRES_PASSWORD: flypass
+      POSTGRES_DB: flyreservation
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
