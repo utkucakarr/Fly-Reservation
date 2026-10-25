@@ -12,8 +12,8 @@ Content-Type: application/json
   "flightNumber": "TK2024",
   "origin": "IST",
   "destination": "ESB",
-  "departureTime": "2026-11-01T09:00:00",
-  "arrivalTime": "2026-11-01T10:10:00",
+  "departureTime": "2026-11-01T09:00:00Z",
+  "arrivalTime": "2026-11-01T10:10:00Z",
   "totalSeats": 180,
   "price": 1500
 }
@@ -26,8 +26,8 @@ Content-Type: application/json
   "flightNumber": "PC1102",
   "origin": "SAW",
   "destination": "ADB",
-  "departureTime": "2026-11-02T14:30:00",
-  "arrivalTime": "2026-11-02T15:40:00",
+  "departureTime": "2026-11-02T14:30:00Z",
+  "arrivalTime": "2026-11-02T15:40:00Z",
   "totalSeats": 189,
   "price": 1200
 }
@@ -43,14 +43,14 @@ Content-Type: application/json
   "flightNumber": "TK2024",
   "origin": "IST",
   "destination": "ESB",
-  "departureTime": "2026-11-01T11:00:00",
-  "arrivalTime": "2026-11-01T12:10:00",
+  "departureTime": "2026-11-01T11:00:00Z",
+  "arrivalTime": "2026-11-01T12:10:00Z",
   "totalSeats": 180,
   "price": 1750
 }
 
 ### 6) Delete
-DELETE {{baseUrl}}/api/flights/2
+DELETE {{baseUrl}}/api/flights/3
 
 ### 7) Olmayan uçuş
 GET {{baseUrl}}/api/flights/999
@@ -63,8 +63,8 @@ Content-Type: application/json
   "flightNumber": "",
   "origin": "IST",
   "destination": "IST",
-  "departureTime": "2020-01-01T10:00:00",
-  "arrivalTime": "2019-01-01T10:00:00",
+  "departureTime": "2020-01-01T10:00:00Z",
+  "arrivalTime": "2019-01-01T10:00:00Z",
   "totalSeats": -50,
   "price": -100
 }

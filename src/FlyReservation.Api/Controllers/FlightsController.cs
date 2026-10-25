@@ -1,6 +1,8 @@
-﻿using FlyReservation.Api.Entities;
+﻿using FlyReservation.Api.Data;
+using FlyReservation.Api.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace FlyReservation.Api.Controllers
 {
@@ -8,39 +10,44 @@ namespace FlyReservation.Api.Controllers
     [ApiController]
     public class FlightsController : ControllerBase
     {
-        private static readonly List<Flight> _flights = new();
-        private static int _nextId = 1;
+        private readonly AppDbContext _context;
+
+        public FlightsController(AppDbContext context)
+        {
+            _context = context;
+        }
 
         [HttpGet]
-        public ActionResult<List<Flight>> GetAll()
+        public async Task<ActionResult<List<Flight>>> GetAll()
         {
-            return Ok(_flights);
+            var flights = await _context.Flights.ToListAsync();
+            return Ok(flights);
         }
 
         [HttpGet("{id}")]
-        public ActionResult<Flight> GetById(int id)
+        public async Task<ActionResult<Flight>> GetById(int id)
         {
-            var flight = _flights.FirstOrDefault(f => f.Id == id);
+            var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
                 return NotFound();
 
             return Ok(flight);
         }
 
-        [HttpPost]
-        public ActionResult<Flight> Create(Flight flight)
+        public async Task<ActionResult<Flight>> Create(Flight flight)
         {
-            flight.Id = _nextId++;
             flight.AvailableSeats = flight.TotalSeats;
-            _flights.Add(flight);
+
+            _context.Flights.Add(flight);
+            await _context.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetById), new { id = flight.Id }, flight);
         }
 
         [HttpPut("{id}")]
-        public ActionResult Update(int id, Flight updatedFlight)
+        public async Task<IActionResult> Update(int id, Flight updatedFlight)
         {
-            var flight = _flights.FirstOrDefault(f => f.Id == id);
+            var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
                 return NotFound();
 
@@ -52,17 +59,22 @@ namespace FlyReservation.Api.Controllers
             flight.TotalSeats = updatedFlight.TotalSeats;
             flight.Price = updatedFlight.Price;
 
+            await _context.SaveChangesAsync();
+
             return NoContent();
         }
 
         [HttpDelete("{id}")]
-        public ActionResult Delete(int id)
+        public async Task<IActionResult> Delete(int id)
         {
-            var flight = _flights.FirstOrDefault(f => f.Id == id);
+            var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
+            {
                 return NotFound();
+            }
 
-            _flights.Remove(flight);
+            _context.Flights.Remove(flight);
+            await _context.SaveChangesAsync();
 
             return NoContent();
         }
