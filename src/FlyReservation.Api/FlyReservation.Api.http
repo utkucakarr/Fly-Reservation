@@ -15,7 +15,7 @@ Content-Type: application/json
   "departureTime": "2026-11-01T09:00:00Z",
   "arrivalTime": "2026-11-01T10:10:00Z",
   "totalSeats": 180,
-  "price": 1500
+  "price": 1500.129
 }
 
 ### 3) Add second fly
@@ -50,7 +50,7 @@ Content-Type: application/json
 }
 
 ### 6) Delete
-DELETE {{baseUrl}}/api/flights/3
+DELETE {{baseUrl}}/api/flights/4
 
 ### 7) Olmayan uçuş
 GET {{baseUrl}}/api/flights/999

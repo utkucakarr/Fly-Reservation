@@ -1,0 +1,36 @@
+@baseUrl = https://localhost:7179
+
+### 1) List all passengers
+GET {{baseUrl}}/api/passengers
+Accept: application/json
+
+### 2) Add passenger (Deney D1: send this twice)
+POST {{baseUrl}}/api/passengers
+Content-Type: application/json
+
+{
+  "firstName": "Mehmet",
+  "lastName": "Demir",
+  "email": "mehmet@example.com",
+  "passportNumber": "TR7654321"
+}
+
+### 3) Get passenger by id
+GET {{baseUrl}}/api/passengers/1
+
+### 4) Update passenger
+PUT {{baseUrl}}/api/passengers/1
+Content-Type: application/json
+
+{
+  "firstName": "Ayşe",
+  "lastName": "Yılmaz Kaya",
+  "email": "ayse@example.com",
+  "passportNumber": "TR1234567"
+}
+
+### 5) Delete passenger with a reservation (Restrict → 500 for now)
+DELETE {{baseUrl}}/api/passengers/1
+
+### 6) Non-existent passenger
+GET {{baseUrl}}/api/passengers/999

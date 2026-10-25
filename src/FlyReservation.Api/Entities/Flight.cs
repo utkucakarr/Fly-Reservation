@@ -11,5 +11,6 @@
         public int TotalSeats { get; set; }
         public int AvailableSeats { get; set; }
         public decimal Price { get; set; }
+        public List<Reservation> Reservations { get; set; } = new();
     }
 }
