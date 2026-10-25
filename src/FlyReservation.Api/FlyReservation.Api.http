@@ -1,6 +1,70 @@
-@FlyReservation.Api_HostAddress = http://localhost:5177
+@baseUrl = https://localhost:7179
 
-GET {{FlyReservation.Api_HostAddress}}/weatherforecast/
+### 1) List all fly
+GET {{baseUrl}}/api/flights
 Accept: application/json
 
-###
+### 2) Add new fly
+POST {{baseUrl}}/api/flights
+Content-Type: application/json
+
+{
+  "flightNumber": "TK2024",
+  "origin": "IST",
+  "destination": "ESB",
+  "departureTime": "2026-11-01T09:00:00",
+  "arrivalTime": "2026-11-01T10:10:00",
+  "totalSeats": 180,
+  "price": 1500
+}
+
+### 3) Add second fly
+POST {{baseUrl}}/api/flights
+Content-Type: application/json
+
+{
+  "flightNumber": "PC1102",
+  "origin": "SAW",
+  "destination": "ADB",
+  "departureTime": "2026-11-02T14:30:00",
+  "arrivalTime": "2026-11-02T15:40:00",
+  "totalSeats": 189,
+  "price": 1200
+}
+
+### 4) Bring with id
+GET {{baseUrl}}/api/flights/1
+
+### 5) Update (price and clock changed)
+PUT {{baseUrl}}/api/flights/1
+Content-Type: application/json
+
+{
+  "flightNumber": "TK2024",
+  "origin": "IST",
+  "destination": "ESB",
+  "departureTime": "2026-11-01T11:00:00",
+  "arrivalTime": "2026-11-01T12:10:00",
+  "totalSeats": 180,
+  "price": 1750
+}
+
+### 6) Delete
+DELETE {{baseUrl}}/api/flights/2
+
+### 7) Olmayan uçuş
+GET {{baseUrl}}/api/flights/999
+
+### 8) Saçma veri (Deney 4)
+POST {{baseUrl}}/api/flights
+Content-Type: application/json
+
+{
+  "flightNumber": "",
+  "origin": "IST",
+  "destination": "IST",
+  "departureTime": "2020-01-01T10:00:00",
+  "arrivalTime": "2019-01-01T10:00:00",
+  "totalSeats": -50,
+  "price": -100
+}
