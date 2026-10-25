@@ -1,0 +1,96 @@
+# ============================================================
+# Kişisel notlar
+# Yol haritası ve adım notları sadece senin çalışma notun, repoya girmesin.
+# ============================================================
+ROADMAP.md
+notlar/
+
+# Claude Code'un proje klasöründe oluşturabileceği dosyalar
+.claude/
+CLAUDE.md
+
+# ============================================================
+# Build çıktıları
+# `dotnet build` / `dotnet publish` her seferinde bunları yeniden üretir.
+# Kaynak kod değil, sonuç oldukları için git'e konmaz.
+# ============================================================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+
+# ============================================================
+# IDE / editör dosyaları
+# Her geliştiricinin kendi ayarları; başkasının makinesinde anlamsız.
+# ============================================================
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.swp
+# VS Code: kişisel ayarlar gitmesin ama ekiple paylaşılabilecekler kalsın
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# ============================================================
+# Test ve coverage çıktıları
+# `dotnet test` her çalıştığında yeniden oluşur.
+# ============================================================
+TestResults/
+coverage/
+*.coverage
+coverage*.json
+coverage*.xml
+*.trx
+
+# ============================================================
+# NuGet
+# Paketler `dotnet restore` ile tekrar indirilir; .csproj içindeki
+# referanslar yeterli.
+# ============================================================
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# ============================================================
+# Gizli bilgiler (secrets)
+# Şifre, API key, sertifika ASLA git'e girmez. Bir kez push edilirse
+# geçmişte sonsuza kadar kalır.
+# Not: appsettings.json ve appsettings.Development.json git'e GİDER,
+# bu yüzden içlerine gerçek şifre yazılmamalı.
+# ============================================================
+.env
+.env.*
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.key
+
+# ============================================================
+# Docker volume / yerel veritabanı verisi
+# Postgres'in diskteki dosyaları; kod değil, veri.
+# ============================================================
+pgdata/
+docker-data/
+
+# ============================================================
+# Load test (k6) çıktıları
+# ============================================================
+k6-results/
+*.k6.json
+
+# ============================================================
+# İşletim sistemi çöpü
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
