@@ -1,0 +1,40 @@
+@baseUrl = https://localhost:7179
+
+### 1) List all reservations
+GET {{baseUrl}}/api/reservations
+
+### 2) Create reservation
+POST {{baseUrl}}/api/reservations
+Content-Type: application/json
+
+{
+  "flightId": 1,
+  "passengerId": 1
+}
+
+### 3) Get reservation by id
+GET {{baseUrl}}/api/reservations/2
+
+### 4) Cancel reservation
+DELETE {{baseUrl}}/api/reservations/2
+
+### 5) Deney B2: try to set server-side fields from client (DTO should ignore them)
+POST {{baseUrl}}/api/reservations
+Content-Type: application/json
+
+{
+  "flightId": 1,
+  "passengerId": 1,
+  "pnrCode": "HACK01",
+  "createdAt": "2000-01-01T00:00:00Z",
+  "id": 999
+}
+
+### 6) Deney B3: reservation for a non-existent flight
+POST {{baseUrl}}/api/reservations
+Content-Type: application/json
+
+{
+  "flightId": 9999,
+  "passengerId": 1
+}

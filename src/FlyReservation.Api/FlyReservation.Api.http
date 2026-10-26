@@ -68,3 +68,19 @@ Content-Type: application/json
   "totalSeats": -50,
   "price": -100
 }
+
+### 9) Deney C1: try to set id and availableSeats from client (DTO should ignore them)
+POST {{baseUrl}}/api/flights
+Content-Type: application/json
+
+{
+  "id": 999,
+  "availableSeats": 5000,
+  "flightNumber": "TK2024",
+  "origin": "IST",
+  "destination": "ESB",
+  "departureTime": "2026-11-20T09:00:00Z",
+  "arrivalTime": "2026-11-20T10:10:00Z",
+  "totalSeats": 180,
+  "price": 1500
+}

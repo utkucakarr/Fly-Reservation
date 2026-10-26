@@ -1,4 +1,5 @@
 ﻿using FlyReservation.Api.Data;
+using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -18,46 +19,57 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<Flight>>> GetAll()
+        public async Task<ActionResult<List<FlightResponse>>> GetAll()
         {
             var flights = await _context.Flights.ToListAsync();
-            return Ok(flights);
+            return Ok(flights.Select(ToResponse).ToList());
         }
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<Flight>> GetById(int id)
+        public async Task<ActionResult<FlightResponse>> GetById(int id)
         {
             var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
                 return NotFound();
 
-            return Ok(flight);
+            return Ok(ToResponse(flight));
         }
 
-        public async Task<ActionResult<Flight>> Create(Flight flight)
+        [HttpPost]
+        public async Task<ActionResult<FlightResponse>> Create(CreateFlightRequest request)
         {
-            flight.AvailableSeats = flight.TotalSeats;
+            var flight = new Flight
+            {
+                FlightNumber = request.FlightNumber,
+                Origin = request.Origin,
+                Destination = request.Destination,
+                DepartureTime = request.DepartureTime,
+                ArrivalTime = request.ArrivalTime,
+                TotalSeats = request.TotalSeats,
+                AvailableSeats = request.TotalSeats,
+                Price = request.Price
+            };
 
             _context.Flights.Add(flight);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetById), new { id = flight.Id }, flight);
+            return CreatedAtAction(nameof(GetById), new { id = flight.Id }, ToResponse(flight));
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, Flight updatedFlight)
+        public async Task<IActionResult> Update(int id, UpdateFlightRequest request)
         {
             var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
                 return NotFound();
 
-            flight.FlightNumber = updatedFlight.FlightNumber;
-            flight.Origin = updatedFlight.Origin;
-            flight.Destination = updatedFlight.Destination;
-            flight.DepartureTime = updatedFlight.DepartureTime;
-            flight.ArrivalTime = updatedFlight.ArrivalTime;
-            flight.TotalSeats = updatedFlight.TotalSeats;
-            flight.Price = updatedFlight.Price;
+            flight.FlightNumber = request.FlightNumber;
+            flight.Origin = request.Origin;
+            flight.Destination = request.Destination;
+            flight.DepartureTime = request.DepartureTime;
+            flight.ArrivalTime = request.ArrivalTime;
+            flight.TotalSeats = request.TotalSeats;
+            flight.Price = request.Price;
 
             await _context.SaveChangesAsync();
 
@@ -77,6 +89,20 @@ namespace FlyReservation.Api.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        private static FlightResponse ToResponse(Flight flight)
+        {
+            return new FlightResponse(
+                flight.Id,
+                flight.FlightNumber,
+                flight.Origin,
+                flight.Destination,
+                flight.DepartureTime,
+                flight.ArrivalTime,
+                flight.TotalSeats,
+                flight.AvailableSeats,
+                flight.Price);
         }
     }
 }
