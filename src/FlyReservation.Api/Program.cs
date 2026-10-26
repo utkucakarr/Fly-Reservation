@@ -1,5 +1,6 @@
 using FlyReservation.Api.Data;
 using FlyReservation.Api.ExceptionHandling;
+using FlyReservation.Api.Filters;
 using Microsoft.EntityFrameworkCore;
 using FluentValidation;
 
@@ -7,7 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+// FluentValidationFilter validates every request DTO before the controller action runs
+builder.Services.AddControllers(options => options.Filters.Add<FluentValidationFilter>());
 
 // Register FluentValidation validators
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -26,6 +28,9 @@ var app = builder.Build();
 
 // Must be first so it wraps every middleware and controller below
 app.UseExceptionHandler();
+
+// Turn empty error responses (e.g. 404 for unknown routes) into ProblemDetails
+app.UseStatusCodePages();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

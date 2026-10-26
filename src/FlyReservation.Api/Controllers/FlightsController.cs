@@ -1,5 +1,4 @@
-﻿using FluentValidation;
-using FlyReservation.Api.Data;
+﻿using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using Microsoft.AspNetCore.Http;
@@ -13,17 +12,10 @@ namespace FlyReservation.Api.Controllers
     public class FlightsController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IValidator<CreateFlightRequest> _createValidator;
-        private readonly IValidator<UpdateFlightRequest> _updateValidator;
 
-        public FlightsController(
-            AppDbContext context,
-            IValidator<CreateFlightRequest> createValidator,
-            IValidator<UpdateFlightRequest> updateValidator)
+        public FlightsController(AppDbContext context)
         {
             _context = context;
-            _createValidator = createValidator;
-            _updateValidator = updateValidator;
         }
 
         [HttpGet]
@@ -46,10 +38,6 @@ namespace FlyReservation.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<FlightResponse>> Create(CreateFlightRequest request)
         {
-            var validation = await _createValidator.ValidateAsync(request);
-            if(!validation.IsValid)
-                return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
-
             var flight = new Flight
             {
                 FlightNumber = request.FlightNumber,
@@ -71,10 +59,6 @@ namespace FlyReservation.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, UpdateFlightRequest request)
         {
-            var validation = await _updateValidator.ValidateAsync(request);
-            if (!validation.IsValid)
-                return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
-
             var flight = await _context.Flights.FindAsync(id);
             if (flight is null)
                 return NotFound();

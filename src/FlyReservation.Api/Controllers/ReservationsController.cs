@@ -44,11 +44,11 @@ namespace FlyReservation.Api.Controllers
         {
             var flightExists = await _context.Flights.AnyAsync(f => f.Id == request.FlightId);
             if (!flightExists)
-                return NotFound(new ProblemDetails { Title = $"Flight {request.FlightId} not found." });
+                return Problem(statusCode: StatusCodes.Status404NotFound, title: $"Flight {request.FlightId} not found.");
 
             var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
             if (!passengerExists)
-                return NotFound(new ProblemDetails { Title = $"Passenger {request.PassengerId} not found." });
+                return Problem(statusCode: StatusCodes.Status404NotFound, title: $"Passenger {request.PassengerId} not found.");
 
             // Object Initializer
             var reservation = new Reservation
