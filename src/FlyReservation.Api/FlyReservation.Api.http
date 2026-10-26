@@ -9,13 +9,13 @@ POST {{baseUrl}}/api/flights
 Content-Type: application/json
 
 {
-  "flightNumber": "TK2024",
-  "origin": "Istanbul",
-  "destination": "ESB",
-  "departureTime": "2026-11-01T09:00:00Z",
-  "arrivalTime": "2026-11-01T10:10:00Z",
-  "totalSeats": 180,
-  "price": 1500.129
+     "flightNumber": "XQ1",
+     "origin": "IST",
+     "destination": "AYT",
+     "departureTime": "2026-12-01T08:00:00Z",
+     "arrivalTime": "2026-12-01T09:15:00Z",
+     "totalSeats": 2,
+     "price": 900
 }
 
 ### 3) Add second fly
@@ -40,13 +40,13 @@ PUT {{baseUrl}}/api/flights/1
 Content-Type: application/json
 
 {
-  "flightNumber": "TK2024",
+  "flightNumber": "XQ1",
   "origin": "IST",
-  "destination": "ESB",
-  "departureTime": "2026-11-01T11:00:00Z",
-  "arrivalTime": "2026-11-01T12:10:00Z",
-  "totalSeats": 180,
-  "price": 1750
+  "destination": "AYT",
+  "departureTime": "2026-12-01T08:00:00Z",
+  "arrivalTime": "2026-12-01T09:15:00Z",
+  "totalSeats": 1,
+  "price": 900
 }
 
 ### 6) Delete

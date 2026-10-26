@@ -47,6 +47,9 @@ namespace FlyReservation.Api.ExceptionHandling
                 NotFoundException notFound
                     => (StatusCodes.Status404NotFound, notFound.Message),
 
+                ConflictException conflict
+                    => (StatusCodes.Status409Conflict, conflict.Message),
+
                 DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } }
                     => (StatusCodes.Status409Conflict, "A record with the same unique value already exists."),
 

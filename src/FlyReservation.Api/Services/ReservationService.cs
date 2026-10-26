@@ -35,13 +35,17 @@ namespace FlyReservation.Api.Services
 
         public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request)
         {
-            var flightExists = await _context.Flights.AnyAsync(f => f.Id == request.FlightId);
-            if (!flightExists)
-                throw new NotFoundException($"Flight {request.FlightId} not found.");
+            var flight = await _context.Flights.FindAsync(request.FlightId)
+                ?? throw new NotFoundException($"Flight {request.FlightId} not found.");
 
             var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
             if (!passengerExists)
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
+
+            if(flight.AvailableSeats <= 0)
+                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
+
+            flight.AvailableSeats--;
 
             var reservation = new Reservation
             {
@@ -60,8 +64,12 @@ namespace FlyReservation.Api.Services
 
         public async Task DeleteAsync(int id)
         {
-            var reservation = await _context.Reservations.FindAsync(id)
+            var reservation = await _context.Reservations
+                .Include(r => r.Flight)
+                .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");
+
+            reservation.Flight.AvailableSeats++;
 
             _context.Reservations.Remove(reservation);
             await _context.SaveChangesAsync();

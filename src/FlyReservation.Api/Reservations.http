@@ -8,7 +8,7 @@ POST {{baseUrl}}/api/reservations
 Content-Type: application/json
 
 {
-  "flightId": 1,
+  "flightId": 15,
   "passengerId": 1
 }
 

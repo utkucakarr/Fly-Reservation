@@ -66,7 +66,10 @@ namespace FlyReservation.Api.Migrations
                     b.HasIndex("FlightNumber", "DepartureTime")
                         .IsUnique();
 
-                    b.ToTable("Flights");
+                    b.ToTable("Flights", t =>
+                        {
+                            t.HasCheckConstraint("CK_Flights_AvailableSeats", "\"AvailableSeats\" >= 0 AND \"AvailableSeats\" <= \"TotalSeats\"");
+                        });
                 });
 
             modelBuilder.Entity("FlyReservation.Api.Entities.Passenger", b =>
