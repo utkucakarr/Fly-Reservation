@@ -1,9 +1,6 @@
-﻿using FlyReservation.Api.Data;
-using FlyReservation.Api.Dtos;
-using FlyReservation.Api.Entities;
-using Microsoft.AspNetCore.Http;
+﻿using FlyReservation.Api.Dtos;
+using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace FlyReservation.Api.Controllers
 {
@@ -11,106 +8,37 @@ namespace FlyReservation.Api.Controllers
     [ApiController]
     public class ReservationsController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IReservationService _reservationService;
 
-        public ReservationsController(AppDbContext context)
+        public ReservationsController(IReservationService reservationService)
         {
-            _context = context;
+            _reservationService = reservationService;
         }
 
         [HttpGet]
         public async Task<ActionResult<List<ReservationResponse>>> GetAll()
         {
-            var reservations = await _context.Reservations
-                .Include(r => r.Flight)
-                .Include(r => r.Passenger)
-                .ToListAsync();
-
-            return Ok(reservations.Select(ToResponse).ToList());
+            return Ok(await _reservationService.GetAllAsync());
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<ReservationResponse>> GetById(int id)
         {
-            var reservation = await FindWithDetailsAsync(id);
-            if (reservation is null)
-                return NotFound();
-
-            return Ok(ToResponse(reservation));
+            return Ok(await _reservationService.GetByIdAsync(id));
         }
 
         [HttpPost]
         public async Task<ActionResult<ReservationResponse>> Create(CreateReservationRequest request)
         {
-            var flightExists = await _context.Flights.AnyAsync(f => f.Id == request.FlightId);
-            if (!flightExists)
-                return Problem(statusCode: StatusCodes.Status404NotFound, title: $"Flight {request.FlightId} not found.");
-
-            var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
-            if (!passengerExists)
-                return Problem(statusCode: StatusCodes.Status404NotFound, title: $"Passenger {request.PassengerId} not found.");
-
-            // Object Initializer
-            var reservation = new Reservation
-            {
-                FlightId = request.FlightId,
-                PassengerId = request.PassengerId,
-                PnrCode = GeneratePnrCode(),
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.Reservations.Add(reservation);
-            await _context.SaveChangesAsync();
-
-            var created = await FindWithDetailsAsync(reservation.Id);
-
-            return CreatedAtAction(nameof(GetById), new { id = reservation.Id }, ToResponse(created!));
+            var created = await _reservationService.CreateAsync(request);
+            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var reservation = await _context.Reservations.FindAsync(id);
-            if (reservation is null)
-                return NotFound();
-
-            _context.Reservations.Remove(reservation);
-            await _context.SaveChangesAsync();
-
+            await _reservationService.DeleteAsync(id);
             return NoContent();
-        }
-
-        private async Task<Reservation?> FindWithDetailsAsync(int id)
-        {
-            return await _context.Reservations
-                .Include(r => r.Flight)
-                .Include(r => r.Passenger)
-                .FirstOrDefaultAsync(r => r.Id == id);
-        }
-
-        // Mapping operation Entity to Dto
-        private static ReservationResponse ToResponse(Reservation reservation)
-        {
-            return new ReservationResponse(
-                reservation.Id,
-                reservation.PnrCode,
-                reservation.CreatedAt,
-                reservation.FlightId,
-                reservation.Flight.FlightNumber,
-                reservation.Flight.Origin,
-                reservation.Flight.Destination,
-                reservation.Flight.DepartureTime,
-                reservation.PassengerId,
-                $"{reservation.Passenger.FirstName} {reservation.Passenger.LastName}");
-        }
-
-        private static string GeneratePnrCode()
-        {
-            const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-            return new string(Enumerable.Range(0, 6)
-                .Select(_ => chars[Random.Shared.Next(chars.Length)])
-                .ToArray());
         }
     }
 }

@@ -1,3 +1,4 @@
+using FlyReservation.Api.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,9 @@ namespace FlyReservation.Api.ExceptionHandling
         {
             return exception switch
             {
+                NotFoundException notFound
+                    => (StatusCodes.Status404NotFound, notFound.Message),
+
                 DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } }
                     => (StatusCodes.Status409Conflict, "A record with the same unique value already exists."),
 

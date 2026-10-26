@@ -1,8 +1,6 @@
-using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
-using FlyReservation.Api.Entities;
+using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace FlyReservation.Api.Controllers
 {
@@ -10,80 +8,44 @@ namespace FlyReservation.Api.Controllers
     [ApiController]
     public class PassengersController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IPassengerService _passengerService;
 
-        public PassengersController(AppDbContext context)
+        public PassengersController(IPassengerService passengerService)
         {
-            _context = context;
+            _passengerService = passengerService;
         }
 
         [HttpGet]
         public async Task<ActionResult<List<PassengerResponse>>> GetAll()
         {
-            var passengers = await _context.Passengers.ToListAsync();
-            return Ok(passengers.Select(ToResponse).ToList());
+            return Ok(await _passengerService.GetAllAsync());
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<PassengerResponse>> GetById(int id)
         {
-            var passenger = await _context.Passengers.FindAsync(id);
-            if (passenger is null)
-                return NotFound();
-
-            return Ok(ToResponse(passenger));
+            return Ok(await _passengerService.GetByIdAsync(id));
         }
 
         [HttpPost]
         public async Task<ActionResult<PassengerResponse>> Create(CreatePassengerRequest request)
         {
-            var passenger = new Passenger
-            {
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                Email = request.Email,
-                PassportNumber = request.PassportNumber
-            };
-
-            _context.Passengers.Add(passenger);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetById), new { id = passenger.Id }, ToResponse(passenger));
+            var created = await _passengerService.CreateAsync(request);
+            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
 
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, UpdatePassengerRequest request)
         {
-            var passenger = await _context.Passengers.FindAsync(id);
-            if (passenger is null)
-                return NotFound();
-
-            passenger.FirstName = request.FirstName;
-            passenger.LastName = request.LastName;
-            passenger.Email = request.Email;
-            passenger.PassportNumber = request.PassportNumber;
-
-            await _context.SaveChangesAsync();
-
+            await _passengerService.UpdateAsync(id, request);
             return NoContent();
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var passenger = await _context.Passengers.FindAsync(id);
-            if (passenger is null)
-                return NotFound();
-
-            _context.Passengers.Remove(passenger);
-            await _context.SaveChangesAsync();
-
+            await _passengerService.DeleteAsync(id);
             return NoContent();
-        }
-
-        private static PassengerResponse ToResponse(Passenger passenger)
-        {
-            return new PassengerResponse(passenger.Id, passenger.FirstName, passenger.LastName, passenger.Email);
         }
     }
 }

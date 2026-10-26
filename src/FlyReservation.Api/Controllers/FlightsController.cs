@@ -1,9 +1,6 @@
-﻿using FlyReservation.Api.Data;
-using FlyReservation.Api.Dtos;
-using FlyReservation.Api.Entities;
-using Microsoft.AspNetCore.Http;
+﻿using FlyReservation.Api.Dtos;
+using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace FlyReservation.Api.Controllers
 {
@@ -11,98 +8,44 @@ namespace FlyReservation.Api.Controllers
     [ApiController]
     public class FlightsController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IFlightService _flightService;
 
-        public FlightsController(AppDbContext context)
+        public FlightsController(IFlightService flightService)
         {
-            _context = context;
+            _flightService = flightService;
         }
 
         [HttpGet]
         public async Task<ActionResult<List<FlightResponse>>> GetAll()
         {
-            var flights = await _context.Flights.ToListAsync();
-            return Ok(flights.Select(ToResponse).ToList());
+            return Ok(await _flightService.GetAllAsync());
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<FlightResponse>> GetById(int id)
         {
-            var flight = await _context.Flights.FindAsync(id);
-            if (flight is null)
-                return NotFound();
-
-            return Ok(ToResponse(flight));
+            return Ok(await _flightService.GetByIdAsync(id));
         }
 
         [HttpPost]
         public async Task<ActionResult<FlightResponse>> Create(CreateFlightRequest request)
         {
-            var flight = new Flight
-            {
-                FlightNumber = request.FlightNumber,
-                Origin = request.Origin,
-                Destination = request.Destination,
-                DepartureTime = request.DepartureTime,
-                ArrivalTime = request.ArrivalTime,
-                TotalSeats = request.TotalSeats,
-                AvailableSeats = request.TotalSeats,
-                Price = request.Price
-            };
-
-            _context.Flights.Add(flight);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(nameof(GetById), new { id = flight.Id }, ToResponse(flight));
+            var created = await _flightService.CreateAsync(request);
+            return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
 
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, UpdateFlightRequest request)
         {
-            var flight = await _context.Flights.FindAsync(id);
-            if (flight is null)
-                return NotFound();
-
-            flight.FlightNumber = request.FlightNumber;
-            flight.Origin = request.Origin;
-            flight.Destination = request.Destination;
-            flight.DepartureTime = request.DepartureTime;
-            flight.ArrivalTime = request.ArrivalTime;
-            flight.TotalSeats = request.TotalSeats;
-            flight.Price = request.Price;
-
-            await _context.SaveChangesAsync();
-
+            await _flightService.UpdateAsync(id, request);
             return NoContent();
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var flight = await _context.Flights.FindAsync(id);
-            if (flight is null)
-            {
-                return NotFound();
-            }
-
-            _context.Flights.Remove(flight);
-            await _context.SaveChangesAsync();
-
+            await _flightService.DeleteAsync(id);
             return NoContent();
-        }
-
-        private static FlightResponse ToResponse(Flight flight)
-        {
-            return new FlightResponse(
-                flight.Id,
-                flight.FlightNumber,
-                flight.Origin,
-                flight.Destination,
-                flight.DepartureTime,
-                flight.ArrivalTime,
-                flight.TotalSeats,
-                flight.AvailableSeats,
-                flight.Price);
         }
     }
 }

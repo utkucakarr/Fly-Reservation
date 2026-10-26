@@ -1,6 +1,7 @@
 using FlyReservation.Api.Data;
 using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
+using FlyReservation.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using FluentValidation;
 
@@ -19,6 +20,11 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("FlyReservationDb")));
+
+// Business logic lives in services. Scoped = one instance per HTTP request (same as AppDbContext)
+builder.Services.AddScoped<IFlightService, FlightService>();
+builder.Services.AddScoped<IPassengerService, PassengerService>();
+builder.Services.AddScoped<IReservationService, ReservationService>();
 
 // Catch unhandled exceptions in one place and return ProblemDetails responses
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
