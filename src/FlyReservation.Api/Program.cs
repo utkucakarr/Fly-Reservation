@@ -1,4 +1,5 @@
 using FlyReservation.Api.Data;
+using FlyReservation.Api.ExceptionHandling;
 using Microsoft.EntityFrameworkCore;
 using FluentValidation;
 
@@ -17,7 +18,14 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("FlyReservationDb")));
 
+// Catch unhandled exceptions in one place and return ProblemDetails responses
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 var app = builder.Build();
+
+// Must be first so it wraps every middleware and controller below
+app.UseExceptionHandler();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
