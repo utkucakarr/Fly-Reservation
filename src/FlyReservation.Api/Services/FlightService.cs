@@ -51,17 +51,12 @@ namespace FlyReservation.Api.Services
         {
             var flight = await FindAsync(id);
 
-            var soldSeats = flight.TotalSeats - flight.AvailableSeats;
-            if (request.TotalSeats < soldSeats)
-                throw new ConflictException($"Total seats cannot be less than the {soldSeats} seats already sold.");
-
+            flight.ChangeTotalSeats(request.TotalSeats);
             flight.FlightNumber = request.FlightNumber;
             flight.Origin = request.Origin;
             flight.Destination = request.Destination;
             flight.DepartureTime = request.DepartureTime;
             flight.ArrivalTime = request.ArrivalTime;
-            flight.TotalSeats = request.TotalSeats;
-            flight.AvailableSeats = request.TotalSeats - soldSeats;
             flight.Price = request.Price;
 
             await _context.SaveChangesAsync();

@@ -44,10 +44,7 @@ namespace FlyReservation.Api.Services
             if (!passengerExists)
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
-            if(flight.AvailableSeats <= 0)
-                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
-
-            flight.AvailableSeats--;
+            flight.ReserveSeat();
 
             var reservation = new Reservation
             {
@@ -75,7 +72,7 @@ namespace FlyReservation.Api.Services
                 .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");
 
-            reservation.Flight.AvailableSeats++;
+            reservation.Flight.ReleaseSeat();
 
             _context.Reservations.Remove(reservation);
             await _context.SaveChangesAsync();
