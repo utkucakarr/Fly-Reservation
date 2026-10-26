@@ -42,6 +42,14 @@ namespace FlyReservation.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<ReservationResponse>> Create(CreateReservationRequest request)
         {
+            var flightExists = await _context.Flights.AnyAsync(f => f.Id == request.FlightId);
+            if (!flightExists)
+                return NotFound(new ProblemDetails { Title = $"Flight {request.FlightId} not found." });
+
+            var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
+            if (!passengerExists)
+                return NotFound(new ProblemDetails { Title = $"Passenger {request.PassengerId} not found." });
+
             // Object Initializer
             var reservation = new Reservation
             {

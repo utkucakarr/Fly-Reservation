@@ -1,11 +1,16 @@
 using FlyReservation.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+
+// Register FluentValidation validators
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 

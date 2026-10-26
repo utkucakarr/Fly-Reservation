@@ -34,3 +34,14 @@ DELETE {{baseUrl}}/api/passengers/1
 
 ### 6) Non-existent passenger
 GET {{baseUrl}}/api/passengers/999
+
+### 7) Adım 8: invalid passenger (expect 400 with errors)
+POST {{baseUrl}}/api/passengers
+Content-Type: application/json
+
+{
+  "firstName": "",
+  "lastName": "Bu soyad elli karakterden çok daha uzun olduğu için reddedilmeli mutlaka",
+  "email": "not-an-email",
+  "passportNumber": ""
+}

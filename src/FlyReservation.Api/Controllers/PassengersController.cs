@@ -1,3 +1,4 @@
+using FluentValidation;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
@@ -11,10 +12,17 @@ namespace FlyReservation.Api.Controllers
     public class PassengersController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IValidator<CreatePassengerRequest> _createValidator;
+        private readonly IValidator<UpdatePassengerRequest> _updateValidator;
 
-        public PassengersController(AppDbContext context)
+        public PassengersController(
+            AppDbContext context,
+            IValidator<CreatePassengerRequest> createValidator,
+            IValidator<UpdatePassengerRequest> updateValidator)
         {
             _context = context;
+            _createValidator = createValidator;
+            _updateValidator = updateValidator;
         }
 
         [HttpGet]
@@ -37,6 +45,10 @@ namespace FlyReservation.Api.Controllers
         [HttpPost]
         public async Task<ActionResult<PassengerResponse>> Create(CreatePassengerRequest request)
         {
+            var validation = await _createValidator.ValidateAsync(request);
+            if (!validation.IsValid)
+                return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
+
             var passenger = new Passenger
             {
                 FirstName = request.FirstName,
@@ -54,6 +66,10 @@ namespace FlyReservation.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, UpdatePassengerRequest request)
         {
+            var validation = await _updateValidator.ValidateAsync(request);
+            if (!validation.IsValid)
+                return ValidationProblem(new ValidationProblemDetails(validation.ToDictionary()));
+
             var passenger = await _context.Passengers.FindAsync(id);
             if (passenger is null)
                 return NotFound();
