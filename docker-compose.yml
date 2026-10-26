@@ -11,5 +11,17 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  seq:
+    image: datalust/seq:2026.1
+    container_name: flyreservation-seq
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
+    ports:
+      - "127.0.0.1:5343:80"
+    volumes:
+      - seqdata:/data
+
 volumes:
   pgdata:
+  seqdata:

@@ -16,7 +16,7 @@ Content-Type: application/json
 GET {{baseUrl}}/api/reservations/2
 
 ### 4) Cancel reservation
-DELETE {{baseUrl}}/api/reservations/2
+DELETE {{baseUrl}}/api/reservations/6
 
 ### 5) Deney B2: try to set server-side fields from client (DTO should ignore them)
 POST {{baseUrl}}/api/reservations

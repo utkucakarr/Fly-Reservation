@@ -36,7 +36,7 @@ Content-Type: application/json
 GET {{baseUrl}}/api/flights/1
 
 ### 5) Update (price and clock changed)
-PUT {{baseUrl}}/api/flights/1
+PUT {{baseUrl}}/api/flights/15
 Content-Type: application/json
 
 {
@@ -45,7 +45,7 @@ Content-Type: application/json
   "destination": "AYT",
   "departureTime": "2026-12-01T08:00:00Z",
   "arrivalTime": "2026-12-01T09:15:00Z",
-  "totalSeats": 1,
+  "totalSeats": 5,
   "price": 900
 }
 

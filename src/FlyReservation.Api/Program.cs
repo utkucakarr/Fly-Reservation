@@ -3,9 +3,15 @@ using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
 using FlyReservation.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using FluentValidation;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Replace the default logger with Serilog. Sinks and levels come from the "Serilog" section in appsettings
+builder.Services.AddSerilog((_, configuration) => configuration
+    .ReadFrom.Configuration(builder.Configuration));
 
 // Add services to the container.
 
@@ -19,7 +25,12 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("FlyReservationDb")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("FlyReservationDb"))
+        // EF Core logs every failed command as Error, even the ones GlobalExceptionHandler turns into 409.
+        // Lower them to Debug; the handler logs real failures (500) as Error itself
+        .ConfigureWarnings(warnings => warnings.Log(
+            (RelationalEventId.CommandError, LogLevel.Debug),
+            (CoreEventId.SaveChangesFailed, LogLevel.Debug))));
 
 // Business logic lives in services. Scoped = one instance per HTTP request (same as AppDbContext)
 builder.Services.AddScoped<IFlightService, FlightService>();
@@ -32,7 +43,11 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
-// Must be first so it wraps every middleware and controller below
+// One summary line per request: method, path, status code, duration.
+// Outside UseExceptionHandler so it logs the status code the client actually receives
+app.UseSerilogRequestLogging();
+
+// Wraps every middleware and controller below
 app.UseExceptionHandler();
 
 // Turn empty error responses (e.g. 404 for unknown routes) into ProblemDetails

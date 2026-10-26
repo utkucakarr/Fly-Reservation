@@ -9,10 +9,12 @@ namespace FlyReservation.Api.Services
     public class ReservationService : IReservationService
     {
         private readonly AppDbContext _context;
+        private readonly ILogger<ReservationService> _logger;
 
-        public ReservationService(AppDbContext context)
+        public ReservationService(AppDbContext context, ILogger<ReservationService> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<List<ReservationResponse>> GetAllAsync()
@@ -58,6 +60,10 @@ namespace FlyReservation.Api.Services
             _context.Reservations.Add(reservation);
             await _context.SaveChangesAsync();
 
+            _logger.LogInformation(
+                "Reservation {PnrCode} created on flight {FlightNumber} for passenger {PassengerId}. {AvailableSeats} seats left",
+                reservation.PnrCode, flight.FlightNumber, request.PassengerId, flight.AvailableSeats);
+
             var created = await FindWithDetailsAsync(reservation.Id);
             return ToResponse(created!);
         }
@@ -73,6 +79,10 @@ namespace FlyReservation.Api.Services
 
             _context.Reservations.Remove(reservation);
             await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Reservation {PnrCode} cancelled on flight {FlightNumber}. {AvailableSeats} seats left",
+                reservation.PnrCode, reservation.Flight.FlightNumber, reservation.Flight.AvailableSeats);
         }
 
         private async Task<Reservation?> FindWithDetailsAsync(int id)
