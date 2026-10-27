@@ -35,26 +35,36 @@ namespace FlyReservation.Api.Services
             return ToResponse(reservation);
         }
 
+        private const int MaxConcurrencyAttempts = 3;
+
         public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request)
         {
-            // Read only to check that the flight exists and to get its number for the error message (no tracking)
-            var flight = await _context.Flights.AsNoTracking().FirstOrDefaultAsync(f => f.Id == request.FlightId)
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return await TryCreateAsync(request);
+                }
+                catch (DbUpdateConcurrencyException) when (attempt < MaxConcurrencyAttempts)
+                {
+                    // Another request changed this flight after we read it: forget the stale data and try again
+                    _context.ChangeTracker.Clear();
+                }
+            }
+        }
+
+        // Optimistic concurrency: read the flight, apply the domain rule, and let SaveChanges check
+        // that nobody changed the flight in between (UPDATE ... WHERE xmin = <value we read>)
+        private async Task<ReservationResponse> TryCreateAsync(CreateReservationRequest request)
+        {
+            var flight = await _context.Flights.FindAsync(request.FlightId)
                 ?? throw new NotFoundException($"Flight {request.FlightId} not found.");
 
             var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
             if (!passengerExists)
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
-            // The seat decrement and the reservation insert must succeed or fail together
-            await using var transaction = await _context.Database.BeginTransactionAsync();
-
-            // Atomic update: check and decrement in ONE statement, so two requests can never take the same last seat
-            var reservedSeats = await _context.Flights
-                .Where(f => f.Id == request.FlightId && f.AvailableSeats > 0)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(f => f.AvailableSeats, f => f.AvailableSeats - 1));
-
-            if (reservedSeats == 0)
-                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
+            flight.ReserveSeat();
 
             var reservation = new Reservation
             {
@@ -66,15 +76,13 @@ namespace FlyReservation.Api.Services
 
             _context.Reservations.Add(reservation);
             await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            var created = await FindWithDetailsAsync(reservation.Id);
 
             _logger.LogInformation(
                 "Reservation {PnrCode} created on flight {FlightNumber} for passenger {PassengerId}. {AvailableSeats} seats left",
-                created!.PnrCode, created.Flight.FlightNumber, request.PassengerId, created.Flight.AvailableSeats);
+                reservation.PnrCode, flight.FlightNumber, request.PassengerId, flight.AvailableSeats);
 
-            return ToResponse(created);
+            var created = await FindWithDetailsAsync(reservation.Id);
+            return ToResponse(created!);
         }
 
         public async Task DeleteAsync(int id)

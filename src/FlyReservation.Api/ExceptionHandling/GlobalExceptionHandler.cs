@@ -50,6 +50,9 @@ namespace FlyReservation.Api.ExceptionHandling
                 ConflictException conflict
                     => (StatusCodes.Status409Conflict, conflict.Message),
 
+                DbUpdateConcurrencyException
+                    => (StatusCodes.Status409Conflict, "The record was changed by another request. Please try again."),
+
                 DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } }
                     => (StatusCodes.Status409Conflict, "A record with the same unique value already exists."),
 

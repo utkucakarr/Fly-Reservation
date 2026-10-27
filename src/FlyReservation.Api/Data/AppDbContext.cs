@@ -24,6 +24,9 @@ namespace FlyReservation.Api.Data
 
                 entity.HasIndex(f => new { f.FlightNumber, f.DepartureTime }).IsUnique();
 
+                // Optimistic concurrency: EF Core adds "WHERE xmin = <value we read>" to every UPDATE of a flight
+                entity.Property(f => f.Version).IsRowVersion();
+
                 entity.ToTable(t => t.HasCheckConstraint(
                     "CK_Flights_AvailableSeats",
                     "\"AvailableSeats\" >= 0 AND \"AvailableSeats\" <= \"TotalSeats\""));

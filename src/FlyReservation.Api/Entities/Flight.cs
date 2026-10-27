@@ -15,6 +15,9 @@ namespace FlyReservation.Api.Entities
         public decimal Price { get; set; }
         public List<Reservation> Reservations { get; set; } = new();
 
+        // Concurrency token: mapped to PostgreSQL's built-in xmin column, which changes on every update of the row
+        public uint Version { get; set; }
+
         // Seat rules live on the entity so they can be unit tested without a database
 
         public void ReserveSeat()
