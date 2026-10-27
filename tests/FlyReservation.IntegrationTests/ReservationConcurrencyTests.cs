@@ -28,5 +28,21 @@ namespace FlyReservation.IntegrationTests
             var created = responses.Count(r => r.StatusCode == HttpStatusCode.Created);
             Assert.Equal(1, created);
         }
+
+        [Fact]
+        public async Task CreateReservation_WhenSeatsAreEnoughForEveryone_EveryBuyerSucceeds()
+        {
+            var flight = await _client.CreateFlightAsync(totalSeats: 50);
+            var passenger = await _client.CreatePassengerAsync();
+            var request = new CreateReservationRequest(flight.Id, passenger.Id);
+
+            // 50 buyers, 50 seats: everyone should get a ticket, nobody should be turned away
+            var tasks = Enumerable.Range(0, 50)
+                .Select(_ => _client.PostAsJsonAsync("/api/reservations", request));
+            var responses = await Task.WhenAll(tasks);
+
+            var created = responses.Count(r => r.StatusCode == HttpStatusCode.Created);
+            Assert.Equal(50, created);
+        }
     }
 }
