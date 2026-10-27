@@ -3,6 +3,7 @@
     <Project Path="src/FlyReservation.Api/FlyReservation.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FlyReservation.IntegrationTests/FlyReservation.IntegrationTests.csproj" />
     <Project Path="tests/FlyReservation.UnitTests/FlyReservation.UnitTests.csproj" />
   </Folder>
 </Solution>
