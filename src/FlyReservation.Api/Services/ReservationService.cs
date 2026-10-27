@@ -37,14 +37,24 @@ namespace FlyReservation.Api.Services
 
         public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request)
         {
-            var flight = await _context.Flights.FindAsync(request.FlightId)
+            // Read only to check that the flight exists and to get its number for the error message (no tracking)
+            var flight = await _context.Flights.AsNoTracking().FirstOrDefaultAsync(f => f.Id == request.FlightId)
                 ?? throw new NotFoundException($"Flight {request.FlightId} not found.");
 
             var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
             if (!passengerExists)
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
-            flight.ReserveSeat();
+            // The seat decrement and the reservation insert must succeed or fail together
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            // Atomic update: check and decrement in ONE statement, so two requests can never take the same last seat
+            var reservedSeats = await _context.Flights
+                .Where(f => f.Id == request.FlightId && f.AvailableSeats > 0)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(f => f.AvailableSeats, f => f.AvailableSeats - 1));
+
+            if (reservedSeats == 0)
+                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
 
             var reservation = new Reservation
             {
@@ -56,13 +66,15 @@ namespace FlyReservation.Api.Services
 
             _context.Reservations.Add(reservation);
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            var created = await FindWithDetailsAsync(reservation.Id);
 
             _logger.LogInformation(
                 "Reservation {PnrCode} created on flight {FlightNumber} for passenger {PassengerId}. {AvailableSeats} seats left",
-                reservation.PnrCode, flight.FlightNumber, request.PassengerId, flight.AvailableSeats);
+                created!.PnrCode, created.Flight.FlightNumber, request.PassengerId, created.Flight.AvailableSeats);
 
-            var created = await FindWithDetailsAsync(reservation.Id);
-            return ToResponse(created!);
+            return ToResponse(created);
         }
 
         public async Task DeleteAsync(int id)
