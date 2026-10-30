@@ -45,6 +45,11 @@ namespace FlyReservation.Api.Services
             if (!passengerExists)
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
+            var alreadyBooked = await _context.Reservations
+                .AnyAsync(r => r.FlightId == request.FlightId && r.PassengerId == request.PassengerId);
+            if(alreadyBooked)
+                throw new ConflictException($"Passenger {request.PassengerId} already has a reservation on flight {flight.FlightNumber}.");
+
             // The seat decrement and the reservation insert must succeed or fail together
             await using var transaction = await _context.Database.BeginTransactionAsync();
 

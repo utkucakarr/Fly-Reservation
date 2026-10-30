@@ -15,6 +15,22 @@ namespace FlyReservation.IntegrationTests
         }
 
         [Fact]
+        public async Task CreateReservation_WhenSmaePassengerBooksSameFlightTwice_Returns409AndTakesOneSeat()
+        {
+            var flight = await _client.CreateFlightAsync(totalSeats: 5);
+            var passangers = await _client.CreatePassengerAsync();
+            var request = new CreateReservationRequest(flight.Id, passangers.Id);
+            await _client.PostAsJsonAsync("/api/reservations", request);
+
+            var response = await _client.PostAsJsonAsync("/api/reservations", request);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var flightAfter = await _client.GetFlightAsync(flight.Id);
+            Assert.Equal(4, flightAfter.AvailableSeats);
+        }
+
+
+        [Fact]
         public async Task CreateReservation_WhenSeatsAvailable_Returns201AndDecrementsSeats()
         {
             var flight = await _client.CreateFlightAsync(totalSeats: 2);
@@ -35,11 +51,12 @@ namespace FlyReservation.IntegrationTests
         public async Task CreateReservation_WhenFullyBooked_Returns409WithProblemDetails()
         {
             var flight = await _client.CreateFlightAsync(totalSeats: 1);
-            var passenger = await _client.CreatePassengerAsync();
-            var request = new CreateReservationRequest(flight.Id, passenger.Id);
+            var firstPassenger = await _client.CreatePassengerAsync();
+            var secondPassenger = await _client.CreatePassengerAsync();
+            var request = new CreateReservationRequest(flight.Id, firstPassenger.Id);
             await _client.PostAsJsonAsync("/api/reservations", request);
 
-            var response = await _client.PostAsJsonAsync("/api/reservations", request);
+            var response = await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, secondPassenger.Id));
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
             var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();

@@ -132,11 +132,12 @@ namespace FlyReservation.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FlightId");
-
                     b.HasIndex("PassengerId");
 
                     b.HasIndex("PnrCode")
+                        .IsUnique();
+
+                    b.HasIndex("FlightId", "PassengerId")
                         .IsUnique();
 
                     b.ToTable("Reservations");

@@ -44,9 +44,10 @@ namespace FlyReservation.IntegrationTests
         public async Task UpdateFlight_BelowSoldSeats_Returns409AndKeepsSeats()
         {
             var flight = await _client.CreateFlightAsync(totalSeats: 3);
-            var passenger = await _client.CreatePassengerAsync();
-            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
-            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
+            var firstPassenger = await _client.CreatePassengerAsync();
+            var secondPassenger = await _client.CreatePassengerAsync();
+            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, firstPassenger.Id));
+            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, secondPassenger.Id));
             var update = new UpdateFlightRequest(
                 flight.FlightNumber, flight.Origin, flight.Destination,
                 flight.DepartureTime, flight.ArrivalTime, TotalSeats: 1, flight.Price);

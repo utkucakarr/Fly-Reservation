@@ -43,6 +43,8 @@ namespace FlyReservation.Api.Data
             {
                 entity.Property(r => r.PnrCode).HasMaxLength(6);
                 entity.HasIndex(r => r.PnrCode).IsUnique();
+                // A passenger can hold only one seat on a flight. Also stops a double click from booking twice
+                entity.HasIndex(r => new { r.FlightId, r.PassengerId }).IsUnique();
 
                 entity.HasOne(r => r.Flight)
                       .WithMany(f => f.Reservations)
