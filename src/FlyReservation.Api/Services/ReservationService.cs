@@ -3,6 +3,7 @@ using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using FlyReservation.Api.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace FlyReservation.Api.Services
 {
@@ -35,8 +36,16 @@ namespace FlyReservation.Api.Services
             return ToResponse(reservation);
         }
 
-        public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request)
+        public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request, string? idempotencyKey)
         {
+            // A retry with a known key gets the first result back instead of booking again
+            if(idempotencyKey is not null)
+            {
+                var previous = await FindByIdempotencyKeyAsync(idempotencyKey);
+                if (previous is not null)
+                    return ToReplayResponse(previous, request);
+            }
+
             // Read only to check that the flight exists and to get its number for the error message (no tracking)
             var flight = await _context.Flights.AsNoTracking().FirstOrDefaultAsync(f => f.Id == request.FlightId)
                 ?? throw new NotFoundException($"Flight {request.FlightId} not found.");
@@ -53,24 +62,44 @@ namespace FlyReservation.Api.Services
             // The seat decrement and the reservation insert must succeed or fail together
             await using var transaction = await _context.Database.BeginTransactionAsync();
 
-            // Atomic update: check and decrement in ONE statement, so two requests can never take the same last seat
-            var reservedSeats = await _context.Flights
-                .Where(f => f.Id == request.FlightId && f.AvailableSeats > 0)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(f => f.AvailableSeats, f => f.AvailableSeats - 1));
-
-            if (reservedSeats == 0)
-                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
-
             var reservation = new Reservation
             {
                 FlightId = request.FlightId,
                 PassengerId = request.PassengerId,
                 PnrCode = GeneratePnrCode(),
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                IdempotencyKey = idempotencyKey
             };
 
+            // Insert BEFORE taking the seat: a concurrent request with the same key waits on the unique index
+            // until we commit, then fails there instead of competing for a seat
             _context.Reservations.Add(reservation);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (idempotencyKey is not null && IsUniqueViolation(ex))
+            {
+                await transaction.RollbackAsync();
+                _context.ChangeTracker.Clear();
+
+                // Null means a different unique rule failed (e.g. the passenger already has a seat) → 409 from the handler
+                var winner = await FindByIdempotencyKeyAsync(idempotencyKey);
+                if (winner is null)
+                    throw;
+
+                return ToReplayResponse(winner, request);
+            }
+
+            // Atomic update: check and decrement in ONE statement, so two requests can never take the same last seat
+            var reservedSeats = await _context.Flights
+                .Where(f => f.Id == request.FlightId && f.AvailableSeats > 0)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(f => f.AvailableSeats, f => f.AvailableSeats - 1));
+
+            // Not committed → the reservation inserted above is rolled back too
+            if (reservedSeats == 0)
+                throw new ConflictException($"Flight {flight.FlightNumber} has no available seats.");
+
             await transaction.CommitAsync();
 
             var created = await FindWithDetailsAsync(reservation.Id);
@@ -130,6 +159,27 @@ namespace FlyReservation.Api.Services
             return new string(Enumerable.Range(0, 6)
                 .Select(_ => chars[Random.Shared.Next(chars.Length)])
                 .ToArray());
+        }
+
+        private async Task<Reservation?> FindByIdempotencyKeyAsync(string idempotencyKey)
+        {
+            return await _context.Reservations
+                .Include(r => r.Flight)
+                .Include(r => r.Passenger)
+                .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey);
+        }
+
+        private static ReservationResponse ToReplayResponse(Reservation previous, CreateReservationRequest request)
+        {
+            if (previous.FlightId != request.FlightId || previous.PassengerId != request.PassengerId)
+                throw new IdempotencyKeyReusedException("This Idempotency-Key was already used for a different reservation request.");
+
+            return ToResponse(previous);
+        }
+
+        private static bool IsUniqueViolation(DbUpdateException exception)
+        {
+            return exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
         }
     }
 }

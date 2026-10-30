@@ -49,6 +49,9 @@ namespace FlyReservation.Api.ExceptionHandling
 
                 ConflictException conflict
                     => (StatusCodes.Status409Conflict, conflict.Message),
+                
+                IdempotencyKeyReusedException reused
+                    => (StatusCodes.Status422UnprocessableEntity, reused.Message),
 
                 DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } }
                     => (StatusCodes.Status409Conflict, "A record with the same unique value already exists."),

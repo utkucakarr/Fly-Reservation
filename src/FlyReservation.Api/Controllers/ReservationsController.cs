@@ -1,6 +1,7 @@
 ﻿using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 
 namespace FlyReservation.Api.Controllers
 {
@@ -28,9 +29,11 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<ReservationResponse>> Create(CreateReservationRequest request)
+        public async Task<ActionResult<ReservationResponse>> Create(
+            CreateReservationRequest request,
+            [FromHeader(Name = "Idempotency-Key"), MaxLength(100)] string? idempotencyKey)
         {
-            var created = await _reservationService.CreateAsync(request);
+            var created = await _reservationService.CreateAsync(request, idempotencyKey);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
         }
 

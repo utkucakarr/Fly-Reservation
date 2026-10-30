@@ -8,8 +8,18 @@ POST {{baseUrl}}/api/reservations
 Content-Type: application/json
 
 {
-  "flightId": 4,
-  "passengerId": 1
+  "flightId": 2,
+  "passengerId": 4
+}
+
+### 7) Deney 17-E: same key twice → same PNR (click Send twice)
+POST {{baseUrl}}/api/reservations
+Content-Type: application/json
+Idempotency-Key: deney-17-1
+
+{
+  "flightId": 2,
+  "passengerId": 4
 }
 
 ### 3) Get reservation by id

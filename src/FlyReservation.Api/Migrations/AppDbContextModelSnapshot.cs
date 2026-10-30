@@ -122,6 +122,10 @@ namespace FlyReservation.Api.Migrations
                     b.Property<int>("FlightId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("PassengerId")
                         .HasColumnType("integer");
 
@@ -131,6 +135,9 @@ namespace FlyReservation.Api.Migrations
                         .HasColumnType("character varying(6)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
 
                     b.HasIndex("PassengerId");
 

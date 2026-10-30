@@ -43,5 +43,17 @@ namespace FlyReservation.IntegrationTests
         {
             return (await client.GetFromJsonAsync<FlightResponse>($"/api/flights/{id}"))!;
         }
+
+        public static async Task<HttpResponseMessage> PostReservationAsync(
+    this HttpClient client, CreateReservationRequest request, string idempotencyKey)
+        {
+            var message = new HttpRequestMessage(HttpMethod.Post, "/api/reservations")
+            {
+                Content = JsonContent.Create(request)
+            };
+            message.Headers.Add("Idempotency-Key", idempotencyKey);
+
+            return await client.SendAsync(message);
+        }
     }
 }

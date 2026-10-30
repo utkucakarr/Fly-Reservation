@@ -9,12 +9,12 @@ POST {{baseUrl}}/api/flights
 Content-Type: application/json
 
 {
-     "flightNumber": "XQ1",
+     "flightNumber": "TK2024",
      "origin": "IST",
      "destination": "AYT",
-     "departureTime": "2026-12-01T08:00:00Z",
-     "arrivalTime": "2026-12-01T09:15:00Z",
-     "totalSeats": 2,
+     "departureTime": "2026-11-01T08:00:00Z",
+     "arrivalTime": "2026-11-01T09:15:00Z",
+     "totalSeats": 100,
      "price": 900
 }
 

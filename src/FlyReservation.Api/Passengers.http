@@ -9,9 +9,9 @@ POST {{baseUrl}}/api/passengers
 Content-Type: application/json
 
 {
-  "firstName": "Mehmet",
-  "lastName": "Demir",
-  "email": "mehmet@example.com",
+  "firstName": "Nura",
+  "lastName": "Çakar",
+  "email": "nuray@example.com",
   "passportNumber": "TR7654321"
 }
 

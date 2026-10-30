@@ -2,6 +2,8 @@
 {
     public class Reservation
     {
+        // Sent by the client; a retry with the same key gets this reservation back instead of a new one
+        public string? IdempotencyKey { get; set; }
         public int Id { get; set; }
         public string PnrCode { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
