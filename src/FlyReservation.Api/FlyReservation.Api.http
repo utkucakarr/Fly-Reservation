@@ -1,8 +1,12 @@
 @baseUrl = https://localhost:7179
 
 ### 1) List all fly
-GET {{baseUrl}}/api/flights
+GET {{baseUrl}}/api/flights?page=1&pageSize=20
 Accept: application/json
+
+
+### 1b) Page size above the limit → 400
+GET {{baseUrl}}/api/flights?pageSize=1000
 
 ### 2) Add new fly
 POST {{baseUrl}}/api/flights

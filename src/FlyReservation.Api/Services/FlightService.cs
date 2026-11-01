@@ -15,10 +15,19 @@ namespace FlyReservation.Api.Services
             _context = context;
         }
 
-        public async Task<List<FlightResponse>> GetAllAsync()
+        public async Task<PagedResponse<FlightResponse>> GetAllAsync(FlightListRequest request)
         {
-            var flights = await _context.Flights.ToListAsync();
-            return flights.Select(ToResponse).ToList();
+            var totalCount = await _context.Flights.CountAsync();
+
+            var flights = await _context.Flights
+                .AsNoTracking()
+                .OrderBy(f => f.Id)
+                .Skip((request.Page - 1) * request.PageSize)
+                .Take(request.PageSize)
+                .ToListAsync();
+
+
+            return new PagedResponse<FlightResponse>(flights.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
         }
 
         public async Task<FlightResponse> GetByIdAsync(int id)

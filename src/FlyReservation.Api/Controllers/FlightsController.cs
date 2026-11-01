@@ -16,9 +16,9 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<FlightResponse>>> GetAll()
+        public async Task<ActionResult<PagedResponse<FlightResponse>>> GetAll([FromQuery] FlightListRequest request)
         {
-            return Ok(await _flightService.GetAllAsync());
+            return Ok(await _flightService.GetAllAsync(request));
         }
 
         [HttpGet("{id}")]
