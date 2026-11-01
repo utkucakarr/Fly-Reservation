@@ -27,6 +27,12 @@ namespace FlyReservation.Api.Controllers
             return Ok(await _flightService.GetByIdAsync(id));
         }
 
+        [HttpGet("search")]
+        public async Task<ActionResult<List<FlightResponse>>> Search([FromQuery] FlightSearchRequest request)
+        {
+            return Ok(await _flightService.SearchAsync(request));
+        }
+
         [HttpPost]
         public async Task<ActionResult<FlightResponse>> Create(CreateFlightRequest request)
         {

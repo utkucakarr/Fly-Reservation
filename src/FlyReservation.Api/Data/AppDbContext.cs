@@ -23,6 +23,8 @@ namespace FlyReservation.Api.Data
                 entity.Property(f => f.Price).HasPrecision(10, 2);
 
                 entity.HasIndex(f => new { f.FlightNumber, f.DepartureTime }).IsUnique();
+                // Flight search: equality columns first, the range column (DepartureTime) last
+                entity.HasIndex(f => new { f.Origin, f.Destination, f.DepartureTime });
 
                 entity.ToTable(t => t.HasCheckConstraint(
                     "CK_Flights_AvailableSeats",

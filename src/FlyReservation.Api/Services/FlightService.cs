@@ -79,6 +79,24 @@ namespace FlyReservation.Api.Services
             await _context.SaveChangesAsync();
         }
 
+        public async Task<List<FlightResponse>> SearchAsync(FlightSearchRequest request)
+        {
+            // A range on the raw column (not DepartureTime.Date == date), so an index on DepartureTime can be used
+            var from = request.Date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var to = from.AddDays(1);
+
+            var flights = await _context.Flights
+                .AsNoTracking()
+                .Where(f => f.Origin == request.Origin
+                         && f.Destination == request.Destination
+                         && f.DepartureTime >= from
+                         && f.DepartureTime < to)
+                .OrderBy(f => f.DepartureTime)
+                .ToListAsync();
+
+            return flights.Select(ToResponse).ToList();
+        }
+
         private async Task<Flight> FindAsync(int id)
         {
             return await _context.Flights.FindAsync(id)

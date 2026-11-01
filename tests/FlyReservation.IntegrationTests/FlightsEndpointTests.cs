@@ -59,5 +59,59 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal(3, flightAfter.TotalSeats);
             Assert.Equal(1, flightAfter.AvailableSeats);
         }
+
+        [Fact]
+        public async Task GetFlights_PageSizeAboveLimit_Returns400()
+        {
+            var response = await _client.GetAsync("/api/flights?pageSize=101");
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetFlights_ReturnsRequestedPageSize()
+        {
+            await _client.CreateFlightAsync(totalSeats: 10);
+            await _client.CreateFlightAsync(totalSeats: 10);
+            await _client.CreateFlightAsync(totalSeats: 10);
+
+            var page = await _client.GetFromJsonAsync<PagedResponse<FlightResponse>>("/api/flights?page=1&pageSize=2");
+
+            Assert.Equal(2, page!.Items.Count);
+            Assert.True(page.TotalCount >= 3);
+        }
+
+        [Fact]
+        public async Task SearchFlights_ReturnsOnlyThatRouteAndDay_OrderedByDeparture()
+        {
+            // A route and day no other test uses, so the shared test database doesn't interfere
+            var day = DateTime.UtcNow.Date.AddDays(400);
+            var late = await CreateFlightOnRouteAsync("TZX", "GZT", day.AddHours(18));
+            var early = await CreateFlightOnRouteAsync("TZX", "GZT", day.AddHours(7));
+            await CreateFlightOnRouteAsync("TZX", "GZT", day.AddDays(1).AddHours(7));   // next day
+            await CreateFlightOnRouteAsync("TZX", "ERZ", day.AddHours(9));              // other route
+
+            var results = await _client.GetFromJsonAsync<List<FlightResponse>>(
+                $"/api/flights/search?origin=TZX&destination=GZT&date={day:yyyy-MM-dd}");
+
+            Assert.Equal(new[] { early.Id, late.Id }, results!.Select(f => f.Id));
+        }
+
+        private async Task<FlightResponse> CreateFlightOnRouteAsync(string origin, string destination, DateTime departure)
+        {
+            var request = new CreateFlightRequest(
+                FlightNumber: $"SR{Random.Shared.Next(1, 9999)}",
+                Origin: origin,
+                Destination: destination,
+                DepartureTime: departure,
+                ArrivalTime: departure.AddHours(1),
+                TotalSeats: 10,
+                Price: 500);
+
+            var response = await _client.PostAsJsonAsync("/api/flights", request);
+            response.EnsureSuccessStatusCode();
+
+            return (await response.Content.ReadFromJsonAsync<FlightResponse>())!;
+        }
     }
 }

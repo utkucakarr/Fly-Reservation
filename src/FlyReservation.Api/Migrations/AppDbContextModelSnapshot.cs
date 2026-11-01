@@ -66,6 +66,8 @@ namespace FlyReservation.Api.Migrations
                     b.HasIndex("FlightNumber", "DepartureTime")
                         .IsUnique();
 
+                    b.HasIndex("Origin", "Destination", "DepartureTime");
+
                     b.ToTable("Flights", t =>
                         {
                             t.HasCheckConstraint("CK_Flights_AvailableSeats", "\"AvailableSeats\" >= 0 AND \"AvailableSeats\" <= \"TotalSeats\"");
