@@ -1,7 +1,7 @@
 @baseUrl = https://localhost:7179
 
 ### 7) Search: route + day
-GET {{baseUrl}}/api/flights/search?origin=IST&destination=AYT&date=2026-12-01
+GET {{baseUrl}}/api/flights/search?origin=IST&destination=AYT&date=2026-12-20
 
 ### 1) List all fly
 GET {{baseUrl}}/api/flights?page=1&pageSize=20

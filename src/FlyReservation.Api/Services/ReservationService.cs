@@ -1,8 +1,10 @@
+using FlyReservation.Api.Caching;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using FlyReservation.Api.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Npgsql;
 
 namespace FlyReservation.Api.Services
@@ -11,11 +13,13 @@ namespace FlyReservation.Api.Services
     {
         private readonly AppDbContext _context;
         private readonly ILogger<ReservationService> _logger;
+        private readonly HybridCache _cache;
 
-        public ReservationService(AppDbContext context, ILogger<ReservationService> logger)
+        public ReservationService(AppDbContext context, ILogger<ReservationService> logger, HybridCache cache)
         {
             _context = context;
             _logger = logger;
+            _cache = cache;
         }
 
         public async Task<List<ReservationResponse>> GetAllAsync()
@@ -102,6 +106,10 @@ namespace FlyReservation.Api.Services
 
             await transaction.CommitAsync();
 
+            // A seat was taken: cached search results now show the wrong AvailableSeats.
+            // Only after the commit, so a search in between cannot cache the old value again
+            await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
+
             var created = await FindWithDetailsAsync(reservation.Id);
 
             _logger.LogInformation(
@@ -122,6 +130,7 @@ namespace FlyReservation.Api.Services
 
             _context.Reservations.Remove(reservation);
             await _context.SaveChangesAsync();
+            await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
 
             _logger.LogInformation(
                 "Reservation {PnrCode} cancelled on flight {FlightNumber}. {AvailableSeats} seats left",

@@ -1,10 +1,11 @@
+using FluentValidation;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
 using FlyReservation.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using FluentValidation;
+using Microsoft.Extensions.Caching.Hybrid;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -31,6 +32,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         .ConfigureWarnings(warnings => warnings.Log(
             (RelationalEventId.CommandError, LogLevel.Debug),
             (CoreEventId.SaveChangesFailed, LogLevel.Debug))));
+
+builder.Services.AddHybridCache(options => options.DefaultEntryOptions = new HybridCacheEntryOptions
+{
+    Expiration = TimeSpan.FromMinutes(5),
+    LocalCacheExpiration = TimeSpan.FromMinutes(5)
+});
 
 // Business logic lives in services. Scoped = one instance per HTTP request (same as AppDbContext)
 builder.Services.AddScoped<IFlightService, FlightService>();

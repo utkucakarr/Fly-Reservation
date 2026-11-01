@@ -1,18 +1,22 @@
+using FlyReservation.Api.Caching;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using FlyReservation.Api.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 
 namespace FlyReservation.Api.Services
 {
     public class FlightService : IFlightService
     {
         private readonly AppDbContext _context;
+        private readonly HybridCache _cache;
 
-        public FlightService(AppDbContext context)
+        public FlightService(AppDbContext context, HybridCache cache)
         {
             _context = context;
+            _cache = cache;
         }
 
         public async Task<PagedResponse<FlightResponse>> GetAllAsync(FlightListRequest request)
@@ -52,6 +56,7 @@ namespace FlyReservation.Api.Services
 
             _context.Flights.Add(flight);
             await _context.SaveChangesAsync();
+            await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
 
             return ToResponse(flight);
         }
@@ -69,6 +74,7 @@ namespace FlyReservation.Api.Services
             flight.Price = request.Price;
 
             await _context.SaveChangesAsync();
+            await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
         }
 
         public async Task DeleteAsync(int id)
@@ -77,9 +83,21 @@ namespace FlyReservation.Api.Services
 
             _context.Flights.Remove(flight);
             await _context.SaveChangesAsync();
+            await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
         }
 
         public async Task<List<FlightResponse>> SearchAsync(FlightSearchRequest request)
+        {
+            // Same route and day → same key. Only a cache miss runs the query; concurrent misses share one query
+            var key = $"flights:search:{request.Origin}:{request.Destination}:{request.Date:yyyy-MM-dd}";
+
+            return await _cache.GetOrCreateAsync(
+                key,
+                async cancel => await SearchInDatabaseAsync(request, cancel),
+                tags: [CacheTags.FlightSearch]);
+        }
+
+        private async Task<List<FlightResponse>> SearchInDatabaseAsync(FlightSearchRequest request, CancellationToken cancellationToken)
         {
             // A range on the raw column (not DepartureTime.Date == date), so an index on DepartureTime can be used
             var from = request.Date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
@@ -92,7 +110,7 @@ namespace FlyReservation.Api.Services
                          && f.DepartureTime >= from
                          && f.DepartureTime < to)
                 .OrderBy(f => f.DepartureTime)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return flights.Select(ToResponse).ToList();
         }

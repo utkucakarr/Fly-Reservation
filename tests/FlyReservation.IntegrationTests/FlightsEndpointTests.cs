@@ -97,6 +97,36 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal(new[] { early.Id, late.Id }, results!.Select(f => f.Id));
         }
 
+        [Fact]
+        public async Task SearchFlights_AfterBooking_ShowsUpdatedSeats()
+        {
+            var day = DateTime.UtcNow.Date.AddDays(410);
+            var flight = await CreateFlightOnRouteAsync("ERZ", "TZX", day.AddHours(10));
+            var url = $"/api/flights/search?origin=ERZ&destination=TZX&date={day:yyyy-MM-dd}";
+            await _client.GetFromJsonAsync<List<FlightResponse>>(url);   // the first search fills the cache
+            var passenger = await _client.CreatePassengerAsync();
+
+            var booking = await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
+            booking.EnsureSuccessStatusCode();
+
+            var results = await _client.GetFromJsonAsync<List<FlightResponse>>(url);
+            Assert.Equal(flight.TotalSeats - 1, results!.Single().AvailableSeats);
+        }
+
+        [Fact]
+        public async Task SearchFlights_AfterCreatingFlight_IncludesNewFlight()
+        {
+            var day = DateTime.UtcNow.Date.AddDays(420);
+            var url = $"/api/flights/search?origin=GZT&destination=ERZ&date={day:yyyy-MM-dd}";
+            var before = await _client.GetFromJsonAsync<List<FlightResponse>>(url);   // empty result is cached too
+
+            var flight = await CreateFlightOnRouteAsync("GZT", "ERZ", day.AddHours(12));
+
+            var after = await _client.GetFromJsonAsync<List<FlightResponse>>(url);
+            Assert.Empty(before!);
+            Assert.Equal(flight.Id, after!.Single().Id);
+        }
+
         private async Task<FlightResponse> CreateFlightOnRouteAsync(string origin, string destination, DateTime departure)
         {
             var request = new CreateFlightRequest(
