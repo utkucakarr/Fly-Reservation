@@ -26,6 +26,7 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 - **Seat rules:** booking takes a seat, cancelling gives it back, and a flight's total seats cannot drop below the seats already sold.
 - **Overbooking-safe under concurrency:** a single atomic SQL statement checks and takes the seat, so two requests can never take the same last seat.
 - **Idempotent bookings:** a retry or double click with the same `Idempotency-Key` header gets the original reservation back instead of creating a second one. A passenger can hold only one seat per flight.
+- **Paged list and indexed search:** the flight list is paged (`pageSize` capped at 100), and searching by route and day uses a composite index instead of scanning the whole table.
 - **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and a check constraint `0 <= AvailableSeats <= TotalSeats`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
@@ -87,7 +88,8 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/flights` | List flights |
+| `GET` | `/api/flights?page=1&pageSize=20` | List flights, paged (`pageSize` 1–100, ordered by id) |
+| `GET` | `/api/flights/search?origin=IST&destination=AYT&date=2026-12-15` | Flights on a route on one day, ordered by departure time |
 | `GET` | `/api/flights/{id}` | Get a flight |
 | `POST` | `/api/flights` | Create a flight |
 | `PUT` | `/api/flights/{id}` | Update a flight (seat count is recalculated) |
@@ -125,6 +127,12 @@ dotnet ef database update --project src/FlyReservation.Api
 dotnet run --project src/FlyReservation.Api
 ```
 
+Optional: load 100,000 random flights to see the query performance work in action (development database only):
+
+```powershell
+Get-Content scripts/seed-flights.sql | docker exec -i flyreservation-postgres psql -U flyuser -d flyreservation
+```
+
 - OpenAPI document (Development): `http://localhost:5177/openapi/v1.json`
 - Seq log UI: `http://localhost:5343`
 
@@ -136,8 +144,8 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 
 | Project | Count | What it covers |
 |---|---|---|
-| `FlyReservation.UnitTests` | 16 tests, ~70 ms | Seat rules on the `Flight` entity, flight request validation |
-| `FlyReservation.IntegrationTests` | 14 tests | The real API in memory (`WebApplicationFactory`) against a throwaway PostgreSQL 17 container (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries |
+| `FlyReservation.UnitTests` | 30 tests | Seat rules on the `Flight` entity; validation of flight, paging and search requests (including the page size limits) |
+| `FlyReservation.IntegrationTests` | 17 tests | The real API in memory (`WebApplicationFactory`) against a throwaway PostgreSQL 17 container (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
@@ -280,6 +288,46 @@ The key gives a well-behaved client the right response; the constraint keeps the
 
 <!-- 📸 docs/images/17-after-same-key-same-pnr.png -->
 
+## Query performance
+
+With 100,000 flights in the database, two things stopped scaling.
+
+### Returning every flight
+
+`GET /api/flights` returned the whole table in one response: every row read, turned into an object and serialized to JSON, although no client can show 100,000 flights.
+
+**Fix:** pagination with `?page=&pageSize=`. `pageSize` is capped at 100 (otherwise `pageSize=1000000` brings the problem back), and the list has a stable `ORDER BY` so that no flight appears on two pages or on none. The list and search queries are read-only, so they use `AsNoTracking()`.
+
+### Searching scanned the whole table
+
+A search for one route on one day (`IST → AYT`, 15 December) returns 2 flights. Without an index, PostgreSQL read **every row** to find them:
+
+```
+Seq Scan on "Flights"
+  Rows Removed by Filter: 100000
+Execution Time: 5.605 ms
+```
+
+**Fix:** a composite index, equality columns first and the range column last:
+
+```csharp
+entity.HasIndex(f => new { f.Origin, f.Destination, f.DepartureTime });
+```
+
+```
+Bitmap Index Scan on "IX_Flights_Origin_Destination_DepartureTime"
+Execution Time: 0.035 ms
+```
+
+| | Plan | Rows read and thrown away | Execution time |
+|---|---|---|---|
+| No index | Seq Scan | 100,000 | 5.605 ms |
+| Composite index | Bitmap Index Scan | 0 | 0.035 ms |
+
+Measured with `EXPLAIN ANALYZE` on 100,002 flights (second, warm run of each query). A Seq Scan grows with the table; an index lookup barely does.
+
+The day filter is written as a range on the raw column (`DepartureTime >= day AND < day + 1`), not as `DepartureTime.Date == day`: a function applied to the column would stop the index from being used for the date part.
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -299,6 +347,7 @@ These are known and deliberately left for later steps:
 - Concurrent cancellations can lose seat releases: `ReleaseSeat` still uses read → modify → write.
 - Cancelling the same reservation twice at the same moment can return `500` instead of `404`.
 - Updating a flight's total seats while bookings are in progress is not concurrency-safe.
+- Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
 - Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
 - No authentication yet.
 
@@ -310,7 +359,8 @@ These are known and deliberately left for later steps:
 - [x] Unit and integration tests (Testcontainers)
 - [x] Concurrency-safe seat booking
 - [x] Idempotent booking requests
-- [ ] Query performance (indexes, `EXPLAIN ANALYZE`) and caching
+- [x] Query performance (pagination, composite index, `EXPLAIN ANALYZE`)
+- [ ] Caching
 - [ ] Reservation expiry with a background service, outbox pattern
 - [ ] Authentication / authorization, rate limiting
 - [ ] Observability (tracing), CI with GitHub Actions
