@@ -43,5 +43,11 @@ namespace FlyReservation.Api.Controllers
             await _reservationService.DeleteAsync(id);
             return NoContent();
         }
+
+        [HttpPost("{id}/payment")]
+        public async Task<ActionResult<ReservationPaymentResponse>> Pay(int id)
+        {
+            return Ok(await _reservationService.PayAsync(id));
+        }
     }
 }

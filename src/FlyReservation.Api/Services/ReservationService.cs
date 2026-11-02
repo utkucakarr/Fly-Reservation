@@ -3,6 +3,7 @@ using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Entities;
 using FlyReservation.Api.Exceptions;
+using FlyReservation.Api.Payments;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Npgsql;
@@ -14,12 +15,14 @@ namespace FlyReservation.Api.Services
         private readonly AppDbContext _context;
         private readonly ILogger<ReservationService> _logger;
         private readonly HybridCache _cache;
+        private readonly IPaymentClient _paymentClient;
 
-        public ReservationService(AppDbContext context, ILogger<ReservationService> logger, HybridCache cache)
+        public ReservationService(AppDbContext context, ILogger<ReservationService> logger, HybridCache cache, IPaymentClient paymentClient)
         {
             _context = context;
             _logger = logger;
             _cache = cache;
+            _paymentClient = paymentClient;
         }
 
         public async Task<List<ReservationResponse>> GetAllAsync()
@@ -135,6 +138,22 @@ namespace FlyReservation.Api.Services
             _logger.LogInformation(
                 "Reservation {PnrCode} cancelled on flight {FlightNumber}. {AvailableSeats} seats left",
                 reservation.PnrCode, reservation.Flight.FlightNumber, reservation.Flight.AvailableSeats);
+        }
+
+        public async Task<ReservationPaymentResponse> PayAsync(int id)
+        {
+            var reservation = await _context.Reservations
+                .AsNoTracking()
+                .Include(r => r.Flight)
+                .FirstOrDefaultAsync(r => r.Id == id)
+                ?? throw new NotFoundException($"Reservation {id} not found.");
+
+            var transactionId = await _paymentClient.ChargeAsync($"payment-{reservation.PnrCode}", reservation.Flight.Price);
+
+            _logger.LogInformation("Reservation {PnrCode} paid {Amount}. Transaction {TransactionId}",
+                reservation.PnrCode, reservation.Flight.Price, transactionId);
+
+            return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, transactionId);
         }
 
         private async Task<Reservation?> FindWithDetailsAsync(int id)
