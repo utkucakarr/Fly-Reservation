@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/FlyReservation.Api/FlyReservation.Api.csproj" />
+    <Project Path="src/FlyReservation.PaymentMock/FlyReservation.PaymentMock.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FlyReservation.IntegrationTests/FlyReservation.IntegrationTests.csproj" />

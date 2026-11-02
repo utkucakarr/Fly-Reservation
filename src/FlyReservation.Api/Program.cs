@@ -2,6 +2,7 @@ using FluentValidation;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
+using FlyReservation.Api.Payments;
 using FlyReservation.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -56,6 +57,9 @@ builder.Services.AddHybridCache(options => options.DefaultEntryOptions = new Hyb
 builder.Services.AddScoped<IFlightService, FlightService>();
 builder.Services.AddScoped<IPassengerService, PassengerService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
+// Typed HttpClient for the external payment provider (created and pooled by IHttpClientFactory)
+builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
+    client.BaseAddress = new Uri(builder.Configuration["PaymentService:BaseUrl"]!));
 
 // Catch unhandled exceptions in one place and return ProblemDetails responses
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

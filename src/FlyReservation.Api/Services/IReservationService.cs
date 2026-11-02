@@ -8,5 +8,6 @@ namespace FlyReservation.Api.Services
         Task<ReservationResponse> GetByIdAsync(int id);
         Task<ReservationResponse> CreateAsync(CreateReservationRequest request, string? idempotencyKey);
         Task DeleteAsync(int id);
+        Task<ReservationPaymentResponse> PayAsync(int id);
     }
 }

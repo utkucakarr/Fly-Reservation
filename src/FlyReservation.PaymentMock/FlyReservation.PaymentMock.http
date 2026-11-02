@@ -1,0 +1,29 @@
+@mock = http://localhost:5288
+
+### Normal
+POST {{mock}}/chaos
+Content-Type: application/json
+
+{ "delayMs": 0, "failureRate": 0 }
+
+### Flaky: half of the requests fail
+POST {{mock}}/chaos
+Content-Type: application/json
+
+{ "delayMs": 0, "failureRate": 0.5 }
+
+### Slow: 3 seconds per answer
+POST {{mock}}/chaos
+Content-Type: application/json
+
+{ "delayMs": 15000, "failureRate": 0 }
+
+### Down: every request fails
+POST {{mock}}/chaos
+Content-Type: application/json
+
+{ "delayMs": 0, "failureRate": 1 }
+
+### All charges
+GET {{mock}}/charges
+```
