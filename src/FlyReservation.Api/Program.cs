@@ -33,10 +33,23 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             (RelationalEventId.CommandError, LogLevel.Debug),
             (CoreEventId.SaveChangesFailed, LogLevel.Debug))));
 
+// L2 cache: Redis, shared by every API instance and kept across restarts.
+// HybridCache picks up IDistributedCache automatically. Without a Redis connection string it runs with L1 (memory) only
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrEmpty(redisConnectionString))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "flyreservation:";
+    });
+}
+
+// L1 in-memory cache with stampede protection, in front of the L2 above (if any)
 builder.Services.AddHybridCache(options => options.DefaultEntryOptions = new HybridCacheEntryOptions
 {
-    Expiration = TimeSpan.FromMinutes(5),
-    LocalCacheExpiration = TimeSpan.FromMinutes(5)
+    Expiration = TimeSpan.FromMinutes(5),             // L2 (Redis)
+    LocalCacheExpiration = TimeSpan.FromMinutes(1)    // L1: short, another API instance's memory can be stale until it expires
 });
 
 // Business logic lives in services. Scoped = one instance per HTTP request (same as AppDbContext)
