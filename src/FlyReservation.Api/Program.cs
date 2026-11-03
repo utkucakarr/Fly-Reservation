@@ -57,9 +57,21 @@ builder.Services.AddHybridCache(options => options.DefaultEntryOptions = new Hyb
 builder.Services.AddScoped<IFlightService, FlightService>();
 builder.Services.AddScoped<IPassengerService, PassengerService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
-// Typed HttpClient for the external payment provider (created and pooled by IHttpClientFactory)
 builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
-    client.BaseAddress = new Uri(builder.Configuration["PaymentService:BaseUrl"]!));
+        client.BaseAddress = new Uri(builder.Configuration["PaymentService:BaseUrl"]!))
+    // Timeout, retry and circuit breaker around every call to the provider
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);           // one attempt
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);     // all attempts and waits together
+        options.Retry.MaxRetryAttempts = 3;
+        options.Retry.Delay = TimeSpan.FromMilliseconds(200);               // grows exponentially, with jitter
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(10); // must be at least 2x AttemptTimeout
+        options.CircuitBreaker.MinimumThroughput = 10;
+        options.CircuitBreaker.FailureRatio = 0.9;                          // open only when the provider is (almost) down
+        options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
+    });
+
 
 // Catch unhandled exceptions in one place and return ProblemDetails responses
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
