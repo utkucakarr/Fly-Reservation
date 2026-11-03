@@ -51,5 +51,3 @@ Content-Type: application/json
 
 ### Pay a reservation
 POST {{baseUrl}}/api/reservations/1/payment
-```
-(`1` yerine var olan bir rezervasyon id'si yaz.)

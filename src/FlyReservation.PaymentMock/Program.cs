@@ -1,12 +1,11 @@
 using System.Collections.Concurrent;
-using System.Net.NetworkInformation;
 
 // A fake payment provider for development. Its behaviour can be changed while it runs:
 // POST /chaos { "delayMs": 3000, "failureRate": 0.5 }
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-var chaos = new ChaosSettings(DelayMs: 3000, FailureRate: 0.5);
+var chaos = new ChaosSettings(DelayMs: 0, FailureRate: 0);
 var charges = new ConcurrentQueue<Charge>();
 var chargesByKey = new ConcurrentDictionary<string, Charge>();
 
