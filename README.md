@@ -17,8 +17,10 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 | Validation | FluentValidation (applied automatically with an action filter) |
 | Errors | `IExceptionHandler` + ProblemDetails (RFC 9457) with `traceId` |
 | Logging | Serilog (console, rolling file, Seq), structured message templates |
-| Tests | xUnit, `WebApplicationFactory`, Testcontainers (real PostgreSQL in Docker) |
-| Infra | Docker Compose (PostgreSQL + Seq) |
+| Caching | HybridCache (in-memory L1 + Redis L2), tag-based invalidation |
+| Resilience | `Microsoft.Extensions.Http.Resilience` (Polly): timeout, retry, circuit breaker |
+| Tests | xUnit, `WebApplicationFactory`, Testcontainers (real PostgreSQL and Redis in Docker) |
+| Infra | Docker Compose (PostgreSQL + Redis + Seq) |
 
 ## Features
 
@@ -27,6 +29,8 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 - **Overbooking-safe under concurrency:** a single atomic SQL statement checks and takes the seat, so two requests can never take the same last seat.
 - **Idempotent bookings:** a retry or double click with the same `Idempotency-Key` header gets the original reservation back instead of creating a second one. A passenger can hold only one seat per flight.
 - **Paged list and indexed search:** the flight list is paged (`pageSize` capped at 100), and searching by route and day uses a composite index instead of scanning the whole table.
+- **Cached search:** search results are cached in memory and in Redis. 100 identical searches reach the database once, and any booking, cancellation or flight change invalidates them, so seat counts are never stale.
+- **Payments through an external provider:** `POST /api/reservations/{id}/payment` calls a payment service over HTTP with timeouts, retries and a circuit breaker. Every attempt carries the same `Idempotency-Key`, so a retry never charges the card twice. When the provider is unavailable the API answers `503` instead of hanging.
 - **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and a check constraint `0 <= AvailableSeats <= TotalSeats`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
@@ -41,6 +45,8 @@ HTTP request
       → FluentValidation filter (400 with field errors)
   → Service (business logic, throws NotFoundException / ConflictException)
       → Flight entity (seat rules, unit-testable without a database)
+      → HybridCache (memory → Redis) for flight search
+      → PaymentClient → resilience handler (timeout, retry, circuit breaker) → payment provider (HTTP)
   → AppDbContext (EF Core) → PostgreSQL
 ```
 
@@ -53,8 +59,12 @@ src/FlyReservation.Api/
 ├── Validators/         FluentValidation rules
 ├── Filters/            Runs validators before every action
 ├── ExceptionHandling/  GlobalExceptionHandler
+├── Exceptions/         NotFound, Conflict, PaymentUnavailable, ...
+├── Caching/            Cache tags
+├── Payments/           PaymentClient (typed HttpClient)
 ├── Data/               AppDbContext, indexes and constraints
 └── Migrations/
+src/FlyReservation.PaymentMock/  Fake payment provider for development (failures and delays on demand)
 tests/
 ├── FlyReservation.UnitTests/         Entity rules + validators (no database)
 └── FlyReservation.IntegrationTests/  Real API + real PostgreSQL (Testcontainers)
@@ -72,6 +82,7 @@ tests/
 | Total seats lowered below the seats already sold | `409` |
 | Duplicate value (unique index, PostgreSQL `23505`) | `409` |
 | Record still referenced, e.g. deleting a flight that has reservations (`23503`) | `409` |
+| Payment provider unavailable (retries used up, timeout, or circuit open) | `503` |
 | Anything else | `500` with a generic message + `traceId` (full exception only in the logs) |
 
 Every error has the same shape: a ProblemDetails body with a `traceId` that finds the request's logs in Seq.
@@ -103,6 +114,7 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 | `GET` | `/api/reservations/{id}` | Get a reservation |
 | `POST` | `/api/reservations` | Book a seat (`{ "flightId": 1, "passengerId": 1 }`). Optional `Idempotency-Key` header makes retries safe |
 | `DELETE` | `/api/reservations/{id}` | Cancel a reservation and release the seat |
+| `POST` | `/api/reservations/{id}/payment` | Pay for a reservation through the payment provider (`503` if it is unavailable) |
 
 Ready-to-send requests are in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
 
@@ -111,7 +123,7 @@ Ready-to-send requests are in the `.http` files under `src/FlyReservation.Api/` 
 **Requirements:** .NET 10 SDK, Docker.
 
 ```bash
-# 1. Start PostgreSQL (port 5434) and Seq (port 5343)
+# 1. Start PostgreSQL (port 5434), Redis (port 6380) and Seq (port 5343)
 docker compose up -d
 
 # 2. Store the connection string as a user secret (development credentials from docker-compose.yml)
@@ -125,7 +137,12 @@ dotnet ef database update --project src/FlyReservation.Api
 
 # 4. Run the API → http://localhost:5177
 dotnet run --project src/FlyReservation.Api
+
+# 5. Optional, only for the payment endpoint: run the fake payment provider → http://localhost:5288
+dotnet run --project src/FlyReservation.PaymentMock
 ```
+
+The Redis address (`localhost:6380`, the local container without a password) is in `appsettings.Development.json`. Without a Redis connection string the API still runs and caches in memory only.
 
 Optional: load 100,000 random flights to see the query performance work in action (development database only):
 
@@ -145,11 +162,11 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 | Project | Count | What it covers |
 |---|---|---|
 | `FlyReservation.UnitTests` | 30 tests | Seat rules on the `Flight` entity; validation of flight, paging and search requests (including the page size limits) |
-| `FlyReservation.IntegrationTests` | 17 tests | The real API in memory (`WebApplicationFactory`) against a throwaway PostgreSQL 17 container (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day |
+| `FlyReservation.IntegrationTests` | 22 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503` |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
-Integration tests never touch the development database. Each test run gets a clean database and applies the real migrations, so constraints and transactions behave exactly as in production. The EF Core InMemory provider was deliberately not used: it has no constraints or transactions.
+Integration tests never touch the development database or Redis. Each test run gets a clean database and applies the real migrations, so constraints and transactions behave exactly as in production. The EF Core InMemory provider was deliberately not used: it has no constraints or transactions.
 
 Why both kinds? As an experiment, the `ReserveSeat()` call was removed from the booking service: **all 16 unit tests stayed green, while 4 integration tests turned red.** Unit tests check each part on its own; integration tests check that the parts are wired together.
 
@@ -328,6 +345,98 @@ Measured with `EXPLAIN ANALYZE` on 100,002 flights (second, warm run of each que
 
 The day filter is written as a range on the raw column (`DepartureTime >= day AND < day + 1`), not as `DepartureTime.Date == day`: a function applied to the column would stop the index from being used for the date part.
 
+## Caching
+
+### The problem
+
+The same search (one route, one day) is sent again and again, and every request was a database query, although the answer was the same each time. API servers are easy to add; the database usually stays one, so it is the part that runs out first.
+
+### HybridCache: one query for 100 searches
+
+Search results are cached with `HybridCache` (cache-aside). Every parameter that changes the answer is part of the key:
+
+```csharp
+var key = $"flights:search:{request.Origin}:{request.Destination}:{request.Date:yyyy-MM-dd}";
+
+return await _cache.GetOrCreateAsync(key,
+    async cancel => await SearchInDatabaseAsync(request, cancel),
+    tags: [CacheTags.FlightSearch]);
+```
+
+100 identical searches raised PostgreSQL's usage counter of the search index (`idx_scan` in `pg_stat_user_indexes`) by **1**: one query, 99 answers from memory. The first request took 72 ms, the median of the rest 4 ms. Concurrent misses for the same key also run only one query (stampede protection).
+
+### New problem: stale seats
+
+Two new integration tests booked a seat, or created a flight, and then searched again. Both were red: the search still showed **10 seats instead of 9**, served from the cache.
+
+**Fix:** every search entry gets the tag `flight-search`, and every change that affects search results removes it with `RemoveByTagAsync`: booking, cancelling, creating, updating and deleting a flight. In the booking path this happens **after** the transaction commits; removing it earlier would let another request cache the old seat count again before the commit. The expiration (5 minutes) is only a safety net, not the invalidation strategy.
+
+### Redis as the second level
+
+An in-memory cache is lost on every restart and is not shared between API instances. With `AddStackExchangeRedisCache`, HybridCache uses Redis as L2 without any change in the services:
+
+| | L1 (memory) | L2 (Redis) |
+|---|---|---|
+| Shared between instances | No | Yes |
+| Survives an API restart | No | Yes |
+| Expiration | 1 minute | 5 minutes |
+
+After restarting the API, the same search raised `idx_scan` by **0**: it came from Redis. Tag invalidation in Redis is lazy: `RemoveByTagAsync` does not delete entries, it writes one timestamp key (`__MSFT_HCT__flight-search`), and entries written before it are treated as misses.
+
+## Resilient payment calls
+
+### The problem
+
+Payments go to an external provider over HTTP. For development, `src/FlyReservation.PaymentMock` plays the provider, and its behaviour can be changed while it runs: `POST /chaos { "delayMs": 3000, "failureRate": 0.5 }`. `GET /charges` lists every charge it made.
+
+| Provider | What the API did |
+|---|---|
+| Fails half of the requests (10 payments) | **4 × `500`**, although the next attempt would probably have worked |
+| Answers after 15 seconds | Waited **15,030 ms**. `HttpClient`'s default timeout is 100 seconds |
+
+### The fix: timeout, retry, circuit breaker
+
+```csharp
+builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
+        client.BaseAddress = new Uri(builder.Configuration["PaymentService:BaseUrl"]!))
+    .AddStandardResilienceHandler(options =>
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+        options.Retry.MaxRetryAttempts = 3;                       // exponential backoff with jitter
+        options.Retry.Delay = TimeSpan.FromMilliseconds(200);
+        options.CircuitBreaker.MinimumThroughput = 10;
+        options.CircuitBreaker.FailureRatio = 0.9;
+        options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
+    });
+```
+
+When the attempts are used up, the timeout is hit or the circuit is open, `PaymentClient` throws `PaymentUnavailableException`, which the exception handler maps to `503`.
+
+| Provider | Before | After |
+|---|---|---|
+| Fails half of the requests (10 payments) | 4 × `500` | 8 × `200`, 2 × `503` |
+| Down | Every request waits for it | The first payments retried (1,427 / 903 / 451 ms), then the circuit opened: `503` in ~30 ms |
+| Answers after 3 seconds | Waits as long as the provider | `503` after 9.7 s (total timeout 10 s) |
+
+The first circuit breaker setting (5 calls, 50% failures) was **too sensitive**: it opened against the half-failing provider and rejected payments that a retry would have saved. The circuit should open only when the provider is (almost) down, so it was changed to 10 calls and 90%.
+
+### New problem: retries charged the card 4 times
+
+With the slow provider, every 2-second attempt timed out, but the provider had already taken the money each time. The user got a `503` and **4 charges**.
+
+**Fix:** the same idea as [idempotent bookings](#idempotent-bookings), but this time the API is the client. Every attempt sends the same key, so the provider returns the first charge instead of making a new one:
+
+```csharp
+request.Headers.Add("Idempotency-Key", reference);   // "payment-{PNR}"
+```
+
+**Result: 4 charges → 1.** When the user pressed "pay" again after the provider recovered, the API got `200` in 104 ms, and the charge count stayed at 1.
+
+### Tests
+
+The integration tests replace only the provider's HTTP handler (`ConfigurePrimaryHttpMessageHandler`), so the real resilience pipeline runs: one `503` then `200` → `200` after 2 calls; `503` every time → `503` after 4 calls (1 + 3 retries); every attempt carries the same `Idempotency-Key`.
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -349,6 +458,9 @@ These are known and deliberately left for later steps:
 - Updating a flight's total seats while bookings are in progress is not concurrency-safe.
 - Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
 - Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
+- If Redis goes down, the API keeps working, but every cache miss first waits for the Redis client's timeout (measured 5.9–13.5 s) before it goes to the database. The resilience handler only covers `HttpClient`, not Redis.
+- After an invalidation, another API instance can serve stale search results from its own memory (L1) for up to 1 minute.
+- Paying does not change the reservation yet: there is no `Pending` / `Paid` status, and a payment that timed out may in fact have succeeded at the provider. The circuit breaker state is per API instance.
 - No authentication yet.
 
 ## Roadmap
@@ -360,7 +472,8 @@ These are known and deliberately left for later steps:
 - [x] Concurrency-safe seat booking
 - [x] Idempotent booking requests
 - [x] Query performance (pagination, composite index, `EXPLAIN ANALYZE`)
-- [ ] Caching
+- [x] Caching (HybridCache + Redis, tag-based invalidation)
+- [x] Resilient calls to an external payment provider (timeout, retry, circuit breaker, idempotent charges)
 - [ ] Reservation expiry with a background service, outbox pattern
 - [ ] Authentication / authorization, rate limiting
 - [ ] Observability (tracing), CI with GitHub Actions
