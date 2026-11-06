@@ -13,5 +13,8 @@
 
         public int PassengerId { get; set; }
         public Passenger Passenger { get; set; } = null!;
+        public ReservationStatus Status { get; set; }
+        public DateTime? PaymentDueAt { get; set; }
+        public string? PaymentTransactionId { get; set; }
     }
 }

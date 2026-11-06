@@ -1,4 +1,4 @@
 ﻿namespace FlyReservation.Api.Dtos
 {
-    public record ReservationPaymentResponse(string PnrCode, decimal Amount, string TransactionId);
+    public record ReservationPaymentResponse(string PnrCode, decimal Amount, string? TransactionId);
 }

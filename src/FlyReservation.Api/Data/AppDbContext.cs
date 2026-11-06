@@ -45,11 +45,20 @@ namespace FlyReservation.Api.Data
             {
                 entity.Property(r => r.PnrCode).HasMaxLength(6);
                 entity.Property(r => r.IdempotencyKey).HasMaxLength(100);
+                entity.Property(r => r.PaymentTransactionId).HasMaxLength(50);
+                // Stored as text: readable in psql, and adding a status never renumbers the old rows
+                entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
                 entity.HasIndex(r => r.IdempotencyKey).IsUnique();
                 entity.HasIndex(r => r.PnrCode).IsUnique();
-                // A passenger can hold only one seat on a flight. Also stops a double click from booking twice
-                entity.HasIndex(r => new { r.FlightId, r.PassengerId }).IsUnique();
 
+                // A passenger can hold only one seat on a flight. Also stops a double click from booking twice.
+                // Expired rows don't count: that passenger may book the flight again
+                entity.HasIndex(r => new { r.FlightId, r.PassengerId })
+                      .IsUnique()
+                      .HasFilter("\"Status\" <> 'Expired'");
+
+                // The expiry job only looks at pending rows, so only they are indexed
+                entity.HasIndex(r => r.PaymentDueAt).HasFilter("\"Status\" = 'PendingPayment'");
                 entity.HasOne(r => r.Flight)
                       .WithMany(f => f.Reservations)
                       .HasForeignKey(r => r.FlightId)

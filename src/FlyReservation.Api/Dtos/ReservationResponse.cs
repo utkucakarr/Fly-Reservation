@@ -3,6 +3,8 @@
     public record ReservationResponse(
     int Id,
     string PnrCode,
+    string Status,
+    DateTime? PaymentDueAt,
     DateTime CreatedAt,
     int FlightId,
     string FlightNumber,
