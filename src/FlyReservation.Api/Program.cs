@@ -57,6 +57,8 @@ builder.Services.AddHybridCache(options => options.DefaultEntryOptions = new Hyb
 builder.Services.AddScoped<IFlightService, FlightService>();
 builder.Services.AddScoped<IPassengerService, PassengerService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
+// How long an unpaid reservation holds a seat, and how often the worker looks for overdue ones
+builder.Services.Configure<ReservationOptions>(builder.Configuration.GetSection("Reservations"));
 builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
         client.BaseAddress = new Uri(builder.Configuration["PaymentService:BaseUrl"]!))
     // Timeout, retry and circuit breaker around every call to the provider

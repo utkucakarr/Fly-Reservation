@@ -7,6 +7,7 @@ using FlyReservation.Api.Payments;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Npgsql;
+using Microsoft.Extensions.Options;
 
 namespace FlyReservation.Api.Services
 {
@@ -16,13 +17,23 @@ namespace FlyReservation.Api.Services
         private readonly ILogger<ReservationService> _logger;
         private readonly HybridCache _cache;
         private readonly IPaymentClient _paymentClient;
+        // Longer than the payment client's total timeout (10 s), so the expiry job can't take the seat during a charge
+        private static readonly TimeSpan PaymentClaimDuration = TimeSpan.FromMinutes(1);
+        private const int ExpiryBatchSize = 100;
+        private readonly ReservationOptions _options;
 
-        public ReservationService(AppDbContext context, ILogger<ReservationService> logger, HybridCache cache, IPaymentClient paymentClient)
-        {
+        public ReservationService(
+            AppDbContext context,
+            ILogger<ReservationService> logger,
+            HybridCache cache,
+            IPaymentClient paymentClient,
+            IOptions<ReservationOptions> options)
+        { 
             _context = context;
             _logger = logger;
             _cache = cache;
             _paymentClient = paymentClient;
+            _options = options.Value;
         }
 
         public async Task<List<ReservationResponse>> GetAllAsync()
@@ -62,8 +73,10 @@ namespace FlyReservation.Api.Services
                 throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
             var alreadyBooked = await _context.Reservations
-                .AnyAsync(r => r.FlightId == request.FlightId && r.PassengerId == request.PassengerId);
-            if(alreadyBooked)
+                .AnyAsync(r => r.FlightId == request.FlightId
+                    && r.PassengerId == request.PassengerId
+                    && r.Status != ReservationStatus.Expired);
+            if (alreadyBooked)
                 throw new ConflictException($"Passenger {request.PassengerId} already has a reservation on flight {flight.FlightNumber}.");
 
             // The seat decrement and the reservation insert must succeed or fail together
@@ -75,7 +88,9 @@ namespace FlyReservation.Api.Services
                 PassengerId = request.PassengerId,
                 PnrCode = GeneratePnrCode(),
                 CreatedAt = DateTime.UtcNow,
-                IdempotencyKey = idempotencyKey
+                IdempotencyKey = idempotencyKey,
+                Status = ReservationStatus.PendingPayment,
+                PaymentDueAt = DateTime.UtcNow.Add(_options.PaymentWindow)
             };
 
             // Insert BEFORE taking the seat: a concurrent request with the same key waits on the unique index
@@ -125,19 +140,26 @@ namespace FlyReservation.Api.Services
         public async Task DeleteAsync(int id)
         {
             var reservation = await _context.Reservations
-                .Include(r => r.Flight)
-                .FirstOrDefaultAsync(r => r.Id == id)
-                ?? throw new NotFoundException($"Reservation {id} not found.");
+                   .AsNoTracking()
+                   .FirstOrDefaultAsync(r => r.Id == id)
+                   ?? throw new NotFoundException($"Reservation {id} not found.");
 
-            reservation.Flight.ReleaseSeat();
+            // Removing the row and giving the seat back must succeed or fail together
+            await using var transaction = await _context.Database.BeginTransactionAsync();
 
-            _context.Reservations.Remove(reservation);
-            await _context.SaveChangesAsync();
+            // Only pending ones: an expired reservation gave its seat back already, a confirmed one needs a refund first
+            var deleted = await _context.Reservations
+                .Where(r => r.Id == id && r.Status == ReservationStatus.PendingPayment)
+                .ExecuteDeleteAsync();
+
+            if (deleted == 0)
+                throw new ConflictException($"Reservation {reservation.PnrCode} can no longer be cancelled.");
+
+            await ReleaseSeatAsync(reservation.FlightId);
+            await transaction.CommitAsync();
             await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
 
-            _logger.LogInformation(
-                "Reservation {PnrCode} cancelled on flight {FlightNumber}. {AvailableSeats} seats left",
-                reservation.PnrCode, reservation.Flight.FlightNumber, reservation.Flight.AvailableSeats);
+            _logger.LogInformation("Reservation {PnrCode} cancelled", reservation.PnrCode);
         }
 
         public async Task<ReservationPaymentResponse> PayAsync(int id)
@@ -148,12 +170,49 @@ namespace FlyReservation.Api.Services
                 .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");
 
+            // Paying twice is not an error, and it must not reach the provider again
+            if (reservation.Status == ReservationStatus.Confirmed)
+                return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, reservation.PaymentTransactionId);
+
+            // Claim before charging: makes sure the deadline is not about to pass. Never shortens it.
+            // The same WHERE as the expiry job, so for one row exactly one of them wins
+            var now = DateTime.UtcNow;
+            DateTime? claimedUntil = now.Add(PaymentClaimDuration);
+            var claimed = await _context.Reservations
+                .Where(r => r.Id == id && r.Status == ReservationStatus.PendingPayment && r.PaymentDueAt > now)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(
+                    r => r.PaymentDueAt,
+                    r => r.PaymentDueAt < claimedUntil ? claimedUntil : r.PaymentDueAt));
+
+            if (claimed == 0)
+                throw new ConflictException($"Reservation {reservation.PnrCode} has expired. Please book again.");
+
             var transactionId = await _paymentClient.ChargeAsync($"payment-{reservation.PnrCode}", reservation.Flight.Price);
+
+            var confirmed = await _context.Reservations
+                .Where(r => r.Id == id && r.Status == ReservationStatus.PendingPayment)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(r => r.Status, ReservationStatus.Confirmed)
+                    .SetProperty(r => r.PaymentDueAt, (DateTime?)null)
+                    .SetProperty(r => r.PaymentTransactionId, transactionId));
+
+            if (confirmed == 0 && !await _context.Reservations.AnyAsync(r => r.Id == id && r.Status == ReservationStatus.Confirmed))
+            {
+                // Cancelled while the charge was running: the money is taken, the reservation is gone
+                _logger.LogError("Reservation {PnrCode} was charged ({TransactionId}) but is no longer pending. Refund needed",
+                    reservation.PnrCode, transactionId);
+                throw new ConflictException($"Reservation {reservation.PnrCode} is no longer active.");
+            }
 
             _logger.LogInformation("Reservation {PnrCode} paid {Amount}. Transaction {TransactionId}",
                 reservation.PnrCode, reservation.Flight.Price, transactionId);
 
             return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, transactionId);
+        }
+
+        public Task<int> ExpireOverdueAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         private async Task<Reservation?> FindWithDetailsAsync(int id)
@@ -170,6 +229,8 @@ namespace FlyReservation.Api.Services
             return new ReservationResponse(
                 reservation.Id,
                 reservation.PnrCode,
+                reservation.Status.ToString(),
+                reservation.PaymentDueAt,
                 reservation.CreatedAt,
                 reservation.FlightId,
                 reservation.Flight.FlightNumber,

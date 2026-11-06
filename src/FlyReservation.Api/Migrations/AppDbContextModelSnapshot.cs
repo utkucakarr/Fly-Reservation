@@ -131,10 +131,22 @@ namespace FlyReservation.Api.Migrations
                     b.Property<int>("PassengerId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("PaymentDueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentTransactionId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("PnrCode")
                         .IsRequired()
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
 
@@ -143,11 +155,15 @@ namespace FlyReservation.Api.Migrations
 
                     b.HasIndex("PassengerId");
 
+                    b.HasIndex("PaymentDueAt")
+                        .HasFilter("\"Status\" = 'PendingPayment'");
+
                     b.HasIndex("PnrCode")
                         .IsUnique();
 
                     b.HasIndex("FlightId", "PassengerId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"Status\" <> 'Expired'");
 
                     b.ToTable("Reservations");
                 });
