@@ -1,4 +1,5 @@
 using FlyReservation.Api.Data;
+using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,26 @@ namespace FlyReservation.IntegrationTests
         {
             await _postgres.DisposeAsync();
             await _redis.DisposeAsync();
+        }
+
+        // Moves a reservation's deadline into the past, so tests don't have to wait 15 minutes
+        public async Task MakeOverdueAsync(int reservationId)
+        {
+            using var scope = Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            await context.Reservations
+                .Where(r => r.Id == reservationId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(r => r.PaymentDueAt, DateTime.UtcNow.AddMinutes(-1)));
+        }
+
+        // One run of the expiry job, in its own scope like the worker does it
+        public async Task RunExpiryAsync()
+        {
+            using var scope = Services.CreateScope();
+            var reservationService = scope.ServiceProvider.GetRequiredService<IReservationService>();
+
+            await reservationService.ExpireOverdueAsync();
         }
     }
 }

@@ -210,9 +210,44 @@ namespace FlyReservation.Api.Services
             return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, transactionId);
         }
 
-        public Task<int> ExpireOverdueAsync(CancellationToken cancellationToken = default)
+        public async Task<int> ExpireOverdueAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            var now = DateTime.UtcNow;
+
+            var overdue = await _context.Reservations
+                .AsNoTracking()
+                .Where(r => r.Status == ReservationStatus.PendingPayment && r.PaymentDueAt < now)
+                .OrderBy(r => r.PaymentDueAt)
+                .Take(ExpiryBatchSize)
+                .Select(r => new { r.Id, r.FlightId, r.PnrCode })
+                .ToListAsync(cancellationToken);
+
+            var expiredCount = 0;
+
+            foreach (var reservation in overdue)
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+                // Status is checked again in the UPDATE: a payment or another API instance may have got here first.
+                // Then 0 rows change, and the seat is not released a second time
+                var expired = await _context.Reservations
+                    .Where(r => r.Id == reservation.Id && r.Status == ReservationStatus.PendingPayment && r.PaymentDueAt < now)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(r => r.Status, ReservationStatus.Expired), cancellationToken);
+
+                if (expired == 0)
+                    continue;
+
+                await ReleaseSeatAsync(reservation.FlightId, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                expiredCount++;
+
+                _logger.LogInformation("Reservation {PnrCode} expired, seat released", reservation.PnrCode);
+            }
+
+            if (expiredCount > 0)
+                await _cache.RemoveByTagAsync(CacheTags.FlightSearch, cancellationToken);
+
+            return expiredCount;
         }
 
         private async Task<Reservation?> FindWithDetailsAsync(int id)
@@ -269,6 +304,14 @@ namespace FlyReservation.Api.Services
         private static bool IsUniqueViolation(DbUpdateException exception)
         {
             return exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+        }
+
+        // Atomic: another booking or expiry changing the same flight can't be overwritten
+        private async Task ReleaseSeatAsync(int flightId, CancellationToken cancellationToken = default)
+        {
+            await _context.Flights
+                .Where(f => f.Id == flightId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(f => f.AvailableSeats, f => f.AvailableSeats + 1), cancellationToken);
         }
     }
 }
