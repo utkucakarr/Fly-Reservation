@@ -38,7 +38,9 @@ namespace FlyReservation.Api.Services
 
         public async Task<List<ReservationResponse>> GetAllAsync()
         {
+            // Read only: no change tracking needed
             var reservations = await _context.Reservations
+                .AsNoTracking()
                 .Include(r => r.Flight)
                 .Include(r => r.Passenger)
                 .ToListAsync();
@@ -253,6 +255,7 @@ namespace FlyReservation.Api.Services
         private async Task<Reservation?> FindWithDetailsAsync(int id)
         {
             return await _context.Reservations
+                .AsNoTracking()
                 .Include(r => r.Flight)
                 .Include(r => r.Passenger)
                 .FirstOrDefaultAsync(r => r.Id == id);
@@ -288,6 +291,7 @@ namespace FlyReservation.Api.Services
         private async Task<Reservation?> FindByIdempotencyKeyAsync(string idempotencyKey)
         {
             return await _context.Reservations
+                .AsNoTracking()
                 .Include(r => r.Flight)
                 .Include(r => r.Passenger)
                 .FirstOrDefaultAsync(r => r.IdempotencyKey == idempotencyKey);

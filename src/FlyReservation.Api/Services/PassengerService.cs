@@ -17,7 +17,7 @@ namespace FlyReservation.Api.Services
 
         public async Task<List<PassengerResponse>> GetAllAsync()
         {
-            var passengers = await _context.Passengers.ToListAsync();
+            var passengers = await _context.Passengers.AsNoTracking().ToListAsync();
             return passengers.Select(ToResponse).ToList();
         }
 
