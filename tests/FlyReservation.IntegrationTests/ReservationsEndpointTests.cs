@@ -91,5 +91,14 @@ namespace FlyReservation.IntegrationTests
 
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         }
+
+        // An empty body is a bad request, not a search for flight 0
+        [Fact]
+        public async Task CreateReservation_WithoutFlightAndPassenger_Returns400()
+        {
+            var response = await _client.PostAsJsonAsync("/api/reservations", new { });
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
     }
 }
