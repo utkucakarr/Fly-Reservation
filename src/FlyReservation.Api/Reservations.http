@@ -9,7 +9,7 @@ Content-Type: application/json
 
 {
   "flightId": 2,
-  "passengerId": 4
+  "passengerId": 3
 }
 
 ### 7) Deney 17-E: same key twice → same PNR (click Send twice)
