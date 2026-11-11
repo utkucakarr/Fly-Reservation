@@ -8,6 +8,7 @@ using FlyReservation.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Hybrid;
+using Scalar.AspNetCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -96,7 +97,8 @@ app.UseStatusCodePages();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.MapOpenApi();               // /openapi/v1.json
+    app.MapScalarApiReference();    // /scalar: a page that reads that document and sends requests from the browser
 }
 
 app.UseHttpsRedirection();
