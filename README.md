@@ -12,25 +12,27 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 
 | Area | Tools |
 |---|---|
-| API | ASP.NET Core 10 (controllers), OpenAPI |
+| API | ASP.NET Core 10 (controllers), OpenAPI, Scalar (interactive API reference) |
 | Data | PostgreSQL 17, EF Core 10 (Npgsql), code-first migrations |
 | Validation | FluentValidation (applied automatically with an action filter) |
 | Errors | `IExceptionHandler` + ProblemDetails (RFC 9457) with `traceId` |
 | Logging | Serilog (console, rolling file, Seq), structured message templates |
 | Caching | HybridCache (in-memory L1 + Redis L2), tag-based invalidation |
 | Resilience | `Microsoft.Extensions.Http.Resilience` (Polly): timeout, retry, circuit breaker |
+| Background jobs | `BackgroundService` + `PeriodicTimer` (expires unpaid reservations) |
 | Tests | xUnit, `WebApplicationFactory`, Testcontainers (real PostgreSQL and Redis in Docker) |
-| Infra | Docker Compose (PostgreSQL + Redis + Seq) |
+| Infra | Docker Compose (PostgreSQL + Redis + Seq), GitHub Actions CI |
 
 ## Features
 
-- **Flights, passengers, reservations:** full CRUD for flights and passengers; create, list and cancel reservations. Each reservation gets a unique 6-character PNR code.
+- **Flights, passengers, reservations:** full CRUD for flights and passengers; create, list, pay for and cancel reservations. Each reservation gets a unique 6-character PNR code.
 - **Seat rules:** booking takes a seat, cancelling gives it back, and a flight's total seats cannot drop below the seats already sold.
 - **Overbooking-safe under concurrency:** a single atomic SQL statement checks and takes the seat, so two requests can never take the same last seat.
 - **Idempotent bookings:** a retry or double click with the same `Idempotency-Key` header gets the original reservation back instead of creating a second one. A passenger can hold only one seat per flight.
 - **Paged list and indexed search:** the flight list is paged (`pageSize` capped at 100), and searching by route and day uses a composite index instead of scanning the whole table.
 - **Cached search:** search results are cached in memory and in Redis. 100 identical searches reach the database once, and any booking, cancellation or flight change invalidates them. With several API instances, a search can show an old seat count for up to 1 minute, but bookings check the database, so a stale result can never oversell a seat.
 - **Payments through an external provider:** `POST /api/reservations/{id}/payment` calls a payment service over HTTP with timeouts, retries and a circuit breaker. Every attempt carries the same `Idempotency-Key`, so a retry never charges the card twice. When the provider is unavailable the API answers `503` instead of hanging.
+- **Unpaid reservations expire:** a new reservation is `PendingPayment` and holds its seat for 15 minutes. Paying makes it `Confirmed`; if nobody pays, a background service marks it `Expired` and puts the seat back on sale. An expired reservation can no longer be paid, so no money is taken for a seat that may already be sold.
 - **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and a check constraint `0 <= AvailableSeats <= TotalSeats`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
@@ -48,6 +50,9 @@ HTTP request
       → HybridCache (memory → Redis) for flight search
       → PaymentClient → resilience handler (timeout, retry, circuit breaker) → payment provider (HTTP)
   → AppDbContext (EF Core) → PostgreSQL
+
+In the background (no HTTP request):
+  ReservationExpiryWorker, every 30 s → expires unpaid reservations and releases their seats
 ```
 
 ```
@@ -62,6 +67,7 @@ src/FlyReservation.Api/
 ├── Exceptions/         NotFound, Conflict, PaymentUnavailable, ...
 ├── Caching/            Cache tags
 ├── Payments/           PaymentClient (typed HttpClient)
+├── BackgroundServices/ ReservationExpiryWorker
 ├── Data/               AppDbContext, indexes and constraints
 └── Migrations/
 src/FlyReservation.PaymentMock/  Fake payment provider for development (failures and delays on demand)
@@ -79,6 +85,7 @@ tests/
 | Flight has no available seats | `409` |
 | Passenger already has a reservation on this flight | `409` |
 | `Idempotency-Key` reused for a different request | `422` |
+| Paying for an expired reservation; cancelling a paid or expired one | `409` |
 | Total seats lowered below the seats already sold | `409` |
 | Duplicate value (unique index, PostgreSQL `23505`) | `409` |
 | Record still referenced, e.g. deleting a flight that has reservations (`23503`) | `409` |
@@ -113,10 +120,12 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 | `GET` | `/api/reservations` | List reservations |
 | `GET` | `/api/reservations/{id}` | Get a reservation |
 | `POST` | `/api/reservations` | Book a seat (`{ "flightId": 1, "passengerId": 1 }`). Optional `Idempotency-Key` header makes retries safe |
-| `DELETE` | `/api/reservations/{id}` | Cancel a reservation and release the seat |
-| `POST` | `/api/reservations/{id}/payment` | Pay for a reservation through the payment provider (`503` if it is unavailable) |
+| `DELETE` | `/api/reservations/{id}` | Cancel an unpaid reservation and release the seat (`409` once it is paid or expired) |
+| `POST` | `/api/reservations/{id}/payment` | Pay for a pending reservation through the payment provider (`409` if it expired, `503` if the provider is unavailable). Paying again returns the same result without a new charge |
 
-Ready-to-send requests are in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
+To try the API in the browser, run it and open **`http://localhost:5177/scalar`** (Development only): every endpoint with its request body and possible status codes, and a button to send the request. Ready-to-send requests are also in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
+
+<!-- 📸 docs/images/scalar-api-reference.png -->
 
 ## Getting started
 
@@ -150,6 +159,7 @@ Optional: load 100,000 random flights to see the query performance work in actio
 Get-Content scripts/seed-flights.sql | docker exec -i flyreservation-postgres psql -U flyuser -d flyreservation
 ```
 
+- Interactive API reference (Development): `http://localhost:5177/scalar`
 - OpenAPI document (Development): `http://localhost:5177/openapi/v1.json`
 - Seq log UI: `http://localhost:5343`
 
@@ -161,12 +171,14 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 
 | Project | Count | What it covers |
 |---|---|---|
-| `FlyReservation.UnitTests` | 30 tests | Seat rules on the `Flight` entity; validation of flight, paging and search requests (including the page size limits) |
-| `FlyReservation.IntegrationTests` | 22 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503` |
+| `FlyReservation.UnitTests` | 35 tests | Seat rules on the `Flight` entity; validation of flight, reservation, paging and search requests (including the page size limits) |
+| `FlyReservation.IntegrationTests` | 39 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the status codes in the OpenAPI document |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
 Integration tests never touch the development database or Redis. Each test run gets a clean database and applies the real migrations, so constraints and transactions behave exactly as in production. The EF Core InMemory provider was deliberately not used: it has no constraints or transactions.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds the solution and runs both test projects on every push and pull request to `master`. The runner has Docker, so the integration tests start their containers there too. A run takes about a minute.
 
 Why both kinds? As an experiment, the `ReserveSeat()` call was removed from the booking service: **all 16 unit tests stayed green, while 4 integration tests turned red.** Unit tests check each part on its own; integration tests check that the parts are wired together.
 
@@ -437,6 +449,80 @@ request.Headers.Add("Idempotency-Key", reference);   // "payment-{PNR}"
 
 The integration tests replace only the provider's HTTP handler (`ConfigurePrimaryHttpMessageHandler`), so the real resilience pipeline runs: one `503` then `200` → `200` after 2 calls; `503` every time → `503` after 4 calls (1 + 3 retries); every attempt carries the same `Idempotency-Key`.
 
+## Unpaid reservations
+
+### The problem
+
+Booking takes the seat at once, but paying is a separate step. A reservation that was never paid kept its seat **forever**. `scripts/demo-unpaid-seat.ps1` books the only seat of a new flight, never pays, waits and lets a second passenger try:
+
+| Step | Result |
+|---|---|
+| Passenger A books (never pays) | `201` |
+| Passenger B books | `409` |
+| Seats left after 30 seconds | **0** |
+| Passenger B tries again | **`409`** |
+
+![Before: the unpaid seat is never released](docs/images/21-before-unpaid-seat-409.png)
+
+### The fix: a status and a deadline
+
+```
+                 paid
+PendingPayment ────────▶ Confirmed
+      │
+      │ deadline passed (seat released)
+      ▼
+   Expired
+```
+
+- A new reservation is `PendingPayment` with `PaymentDueAt` = now + 15 minutes (`Reservations:PaymentWindow`).
+- `ReservationExpiryWorker`, a `BackgroundService`, checks every 30 seconds. It marks overdue reservations `Expired` and gives their seats back.
+- Expired rows are kept as a record, so the same `Idempotency-Key` still cannot open a new booking. The one-seat-per-passenger index is now filtered (`WHERE "Status" <> 'Expired'`), so the passenger can book the same flight again.
+- Only `PendingPayment` reservations can be cancelled. Cancelling deletes the row and releases the seat with atomic SQL in one transaction.
+
+Measured with the same script (payment window shortened to 20 seconds, check every 5 seconds):
+
+| | Before | After |
+|---|---|---|
+| Seats left after waiting | 0 | **1** (released after 21 s) |
+| Passenger B tries again | `409` | **`201`** |
+
+<!-- 📸 docs/images/21-after-seat-released.png -->
+
+### New problem: the deadline can pass while the card is being charged
+
+A payment can take up to 10 seconds (the total timeout of the resilience handler). If the deadline passed in the middle, the worker would release the seat, another passenger could buy it, and then the money would arrive for a seat that is gone.
+
+**Fix:** claim the reservation **before** calling the provider. One atomic `UPDATE` with the same condition the worker uses, so for one row exactly one of them wins:
+
+```csharp
+// Moves the deadline to at least now + 1 minute (longer than the 10 s payment timeout).
+// 0 rows → the deadline has already passed → 409, and the provider is never called
+var claimed = await _context.Reservations
+    .Where(r => r.Id == id && r.Status == ReservationStatus.PendingPayment && r.PaymentDueAt > now)
+    .ExecuteUpdateAsync(...);
+```
+
+After the charge, a second `UPDATE` with `Status == PendingPayment` in its `WHERE` sets `Confirmed`. Two API instances running the worker at the same time cannot release a seat twice for the same reason.
+
+| Scenario | Result |
+|---|---|
+| Paying an expired reservation | `409`, **0 charges** at the provider |
+| Paying a pending reservation | `200`, `Confirmed` |
+| Paying it again | `200`, same transaction id, still **1 charge** |
+| The deadline passes after the reservation is `Confirmed` | Stays `Confirmed`, the seat is not released |
+| Several expiry runs on the same reservation at once | The seat is released **once** |
+
+### The migration trap
+
+The migration that added the required `Status` column filled existing rows with an **empty string** (EF Core's default). Tried on a throwaway database first: no error, clean logs, and the API even showed `"status": "PendingPayment"` for old reservations. But paying and cancelling them both returned `409`, and the worker could not see them (no deadline). They would have been **stuck forever**.
+
+The fix was a business decision, not a technical one: old reservations were made before payments existed and were valid bookings, so the migration marks them `Confirmed` and then drops the column default, so new code must always set a status.
+
+### Tests
+
+The integration tests call the expiry job directly with a deadline in the past instead of waiting 15 minutes. One test runs the real worker (deadline 1 s, check every 200 ms) and sees the seat come back without any request.
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -453,14 +539,17 @@ The integration tests replace only the provider's HTTP handler (`ConfigurePrimar
 
 These are known and deliberately left for later steps:
 
-- Concurrent cancellations can lose seat releases: `ReleaseSeat` still uses read → modify → write.
-- Cancelling the same reservation twice at the same moment can return `500` instead of `404`.
 - Updating a flight's total seats while bookings are in progress is not concurrency-safe.
 - Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
 - Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
 - If Redis goes down, the API keeps working, but every cache miss first waits for the Redis client's timeout (measured 5.9–13.5 s) before it goes to the database. The resilience handler only covers `HttpClient`, not Redis.
 - After an invalidation, another API instance can serve stale search results from its own memory (L1) for up to 1 minute.
-- Paying does not change the reservation yet: there is no `Pending` / `Paid` status, and a payment that timed out may in fact have succeeded at the provider. The circuit breaker state is per API instance.
+- A payment that ended in `503` may in fact have succeeded at the provider. If the user does not try again, the reservation expires although the money may have been taken. The fix is to ask the provider for the payment's status before expiring it, or to reconcile with the provider's records.
+- If a reservation is cancelled while its payment is running, the money is taken but the reservation is gone. This is logged as an error ("Refund needed"); there is no refund flow yet.
+- Someone whose payments keep failing can keep holding a seat past the deadline: every attempt near the end extends it by up to 1 minute.
+- A flight that has expired reservations cannot be deleted (foreign key, `409`).
+- A seat comes back up to `ExpiryCheckInterval` (30 s) after the deadline, not exactly at it.
+- The circuit breaker state is per API instance.
 - No authentication yet.
 
 ## Roadmap
@@ -474,6 +563,8 @@ These are known and deliberately left for later steps:
 - [x] Query performance (pagination, composite index, `EXPLAIN ANALYZE`)
 - [x] Caching (HybridCache + Redis, tag-based invalidation)
 - [x] Resilient calls to an external payment provider (timeout, retry, circuit breaker, idempotent charges)
-- [ ] Reservation expiry with a background service, outbox pattern
+- [x] Reservation status and expiry with a background service
+- [x] CI with GitHub Actions (build + unit and integration tests on every push)
+- [ ] Outbox pattern
 - [ ] Authentication / authorization, rate limiting
-- [ ] Observability (tracing), CI with GitHub Actions
+- [ ] Observability (tracing), Dockerfile for the API
