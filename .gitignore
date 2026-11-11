@@ -22,6 +22,8 @@ CLAUDE.md
 [Ll]ogs/
 artifacts/
 publish/
+# BenchmarkDotNet results (reports, logs), written to the folder the benchmark is started from
+BenchmarkDotNet.Artifacts/
 
 # ============================================================
 # IDE / editör dosyaları
