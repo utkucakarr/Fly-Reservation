@@ -143,6 +143,10 @@ namespace FlyReservation.Api.Migrations
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
 
+                    b.Property<decimal>("Price")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -165,7 +169,10 @@ namespace FlyReservation.Api.Migrations
                         .IsUnique()
                         .HasFilter("\"Status\" <> 'Expired'");
 
-                    b.ToTable("Reservations");
+                    b.ToTable("Reservations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reservations_Price", "\"Price\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("FlyReservation.Api.Entities.Reservation", b =>

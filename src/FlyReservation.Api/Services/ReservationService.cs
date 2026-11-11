@@ -92,7 +92,8 @@ namespace FlyReservation.Api.Services
                 CreatedAt = DateTime.UtcNow,
                 IdempotencyKey = idempotencyKey,
                 Status = ReservationStatus.PendingPayment,
-                PaymentDueAt = DateTime.UtcNow.Add(_options.PaymentWindow)
+                PaymentDueAt = DateTime.UtcNow.Add(_options.PaymentWindow),
+                Price = flight.Price // <- snapshot
             };
 
             // Insert BEFORE taking the seat: a concurrent request with the same key waits on the unique index
@@ -168,13 +169,12 @@ namespace FlyReservation.Api.Services
         {
             var reservation = await _context.Reservations
                 .AsNoTracking()
-                .Include(r => r.Flight)
                 .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");
 
             // Paying twice is not an error, and it must not reach the provider again
             if (reservation.Status == ReservationStatus.Confirmed)
-                return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, reservation.PaymentTransactionId);
+                return new ReservationPaymentResponse(reservation.PnrCode, reservation.Price, reservation.PaymentTransactionId);
 
             // Claim before charging: makes sure the deadline is not about to pass. Never shortens it.
             // The same WHERE as the expiry job, so for one row exactly one of them wins
@@ -189,7 +189,7 @@ namespace FlyReservation.Api.Services
             if (claimed == 0)
                 throw new ConflictException($"Reservation {reservation.PnrCode} has expired. Please book again.");
 
-            var transactionId = await _paymentClient.ChargeAsync($"payment-{reservation.PnrCode}", reservation.Flight.Price);
+            var transactionId = await _paymentClient.ChargeAsync($"payment-{reservation.PnrCode}", reservation.Price);
 
             var confirmed = await _context.Reservations
                 .Where(r => r.Id == id && r.Status == ReservationStatus.PendingPayment)
@@ -207,9 +207,9 @@ namespace FlyReservation.Api.Services
             }
 
             _logger.LogInformation("Reservation {PnrCode} paid {Amount}. Transaction {TransactionId}",
-                reservation.PnrCode, reservation.Flight.Price, transactionId);
+                reservation.PnrCode, reservation.Price, transactionId);
 
-            return new ReservationPaymentResponse(reservation.PnrCode, reservation.Flight.Price, transactionId);
+            return new ReservationPaymentResponse(reservation.PnrCode, reservation.Price, transactionId);
         }
 
         public async Task<int> ExpireOverdueAsync(CancellationToken cancellationToken = default)
@@ -268,6 +268,7 @@ namespace FlyReservation.Api.Services
                 reservation.Id,
                 reservation.PnrCode,
                 reservation.Status.ToString(),
+                reservation.Price,
                 reservation.PaymentDueAt,
                 reservation.CreatedAt,
                 reservation.FlightId,

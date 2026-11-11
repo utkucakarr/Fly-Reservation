@@ -16,5 +16,7 @@
         public ReservationStatus Status { get; set; }
         public DateTime? PaymentDueAt { get; set; }
         public string? PaymentTransactionId { get; set; }
+        // The price agreed at booking. Flight.Price is the current price and may change before the customer pays
+        public decimal Price { get; set; }
     }
 }

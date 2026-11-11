@@ -186,6 +186,44 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal("Expired", (await GetReservationAsync(reservation.Id)).Status);
         }
 
+        // The price changes between booking and payment: the customer pays the price they booked at.
+        // Checks both the amount sent to the provider (the real money) and the amount in the response
+        [Fact]
+        public async Task Pay_AfterPriceChange_ChargesThePriceAtBooking()
+        {
+            var provider = new FakePaymentHandler(HttpStatusCode.OK);
+            var client = CreateClientWith(provider);
+            var flight = await client.CreateFlightAsync(totalSeats: 1);          // price 900
+            var reservation = await BookAsync(client, flight.Id);
+
+            await client.ChangeFlightPriceAsync(flight, 1200);
+            var response = await client.PostAsync($"/api/reservations/{reservation.Id}/payment", null);
+
+            var payment = await response.Content.ReadFromJsonAsync<ReservationPaymentResponse>();
+            Assert.Equal(900, Assert.Single(provider.Amounts));  // 1) How much was really charged?
+            Assert.Equal(900, payment!.Amount);  // 2) What did the API tell the customer?
+        }
+
+        // The price changes after payment, then the client sends the payment again (e.g. the first response was lost).
+        // The repeat must not charge again, and its response must show what was charged, not the current price
+        [Fact]
+        public async Task Pay_Again_AfterPriceChange_ReturnsTheChargedAmount()
+        {
+            var provider = new FakePaymentHandler(HttpStatusCode.OK);
+            var client = CreateClientWith(provider);
+            var flight = await client.CreateFlightAsync(totalSeats: 1);
+            var reservation = await BookAsync(client, flight.Id);
+            var first = await client.PostAsync($"/api/reservations/{reservation.Id}/payment", null);   // 900 charged
+            first.EnsureSuccessStatusCode();   // the first payment must succeed, otherwise the test means nothing
+
+            await client.ChangeFlightPriceAsync(flight, 1200);
+            var second = await client.PostAsync($"/api/reservations/{reservation.Id}/payment", null);
+
+            var payment = await second.Content.ReadFromJsonAsync<ReservationPaymentResponse>();
+            Assert.Equal(900, payment!.Amount);
+            Assert.Equal(1, provider.Calls);
+        }
+
         private HttpClient CreateClientWith(FakePaymentHandler provider)
         {
             return _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>

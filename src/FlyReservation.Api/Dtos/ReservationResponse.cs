@@ -4,6 +4,7 @@
     int Id,
     string PnrCode,
     string Status,
+    decimal Price,
     DateTime? PaymentDueAt,
     DateTime CreatedAt,
     int FlightId,
