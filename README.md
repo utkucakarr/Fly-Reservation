@@ -33,7 +33,8 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 - **Cached search:** search results are cached in memory and in Redis. 100 identical searches reach the database once, and any booking, cancellation or flight change invalidates them. With several API instances, a search can show an old seat count for up to 1 minute, but bookings check the database, so a stale result can never oversell a seat.
 - **Payments through an external provider:** `POST /api/reservations/{id}/payment` calls a payment service over HTTP with timeouts, retries and a circuit breaker. Every attempt carries the same `Idempotency-Key`, so a retry never charges the card twice. When the provider is unavailable the API answers `503` instead of hanging.
 - **Unpaid reservations expire:** a new reservation is `PendingPayment` and holds its seat for 15 minutes. Paying makes it `Confirmed`; if nobody pays, a background service marks it `Expired` and puts the seat back on sale. An expired reservation can no longer be paid, so no money is taken for a seat that may already be sold.
-- **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and a check constraint `0 <= AvailableSeats <= TotalSeats`.
+- **Price agreed at booking:** the reservation stores the flight's price at the moment of booking, and paying charges that price, even if the flight's price changes in between.
+- **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and check constraints `0 <= AvailableSeats <= TotalSeats` and `Price > 0`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
 
@@ -172,7 +173,7 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 | Project | Count | What it covers |
 |---|---|---|
 | `FlyReservation.UnitTests` | 35 tests | Seat rules on the `Flight` entity; validation of flight, reservation, paging and search requests (including the page size limits) |
-| `FlyReservation.IntegrationTests` | 39 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the status codes in the OpenAPI document |
+| `FlyReservation.IntegrationTests` | 41 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the price charged after a price change, the status codes in the OpenAPI document |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
@@ -523,6 +524,63 @@ The fix was a business decision, not a technical one: old reservations were made
 
 The integration tests call the expiry job directly with a deadline in the past instead of waiting 15 minutes. One test runs the real worker (deadline 1 s, check every 200 ms) and sees the seat come back without any request.
 
+## Price agreed at booking
+
+### The problem
+
+Paying read the flight's **current** price. The reservation itself had no price:
+
+| Time | What happens | Charged |
+|---|---|---|
+| 10:00 | A customer books a 900 TL flight (15 minutes to pay) | — |
+| 10:05 | The airline raises the price to 1200 TL | — |
+| 10:10 | The customer pays | **1200 TL** (they saw 900) |
+
+A price drop would cost the company money instead. A second bug sat in the repeat payment: paying an already confirmed reservation again correctly made no new charge, but its response showed the **current** price, not the amount that was charged.
+
+Two integration tests reproduce both: the fake provider records the amount it was asked to charge, and the flight's price is changed with `PUT /api/flights/{id}`.
+
+| Price changes before payment | Price changes after payment, payment sent again |
+|---|---|
+| ![Before: 1200 charged instead of 900](docs/images/21b-before-charged-new-price.png) | ![Before: the repeat payment shows 1200](docs/images/21b-before-repeat-shows-new-price.png) |
+
+### The fix: a price snapshot
+
+The reservation copies the flight's price when it is created, and payment uses that copy:
+
+```csharp
+var reservation = new Reservation
+{
+    ...
+    Price = flight.Price      // the price the customer accepted; never changes again
+};
+
+var transactionId = await _paymentClient.ChargeAsync($"payment-{reservation.PnrCode}", reservation.Price);
+```
+
+| | `Flight.Price` | `Reservation.Price` |
+|---|---|---|
+| Means | The flight's price **now** | The price the customer **accepted** |
+| Changes? | Whenever the airline changes it | Never |
+
+This is not duplicated data: the two answer different questions, and one must not change when the other does. An order line in a shop keeps the product's price for the same reason. Paying no longer loads the flight at all, so the current price cannot be read by mistake. Reservation responses now show the price too.
+
+| Price changes before payment | Price changes after payment, payment sent again |
+|---|---|
+| ![After: 900 is charged](docs/images/21b-after-charged-booked-price.png) | ![After: the repeat payment shows 900](docs/images/21b-after-repeat-shows-charged-amount.png) |
+
+### The migration trap, caught this time
+
+Adding a required `Price` column made EF Core fill existing reservations with **0**. An unpaid old reservation would have been payable for 0 TL. This time a check constraint (`"Price" > 0`) was part of the same migration, so the database refused instead of storing bad data quietly:
+
+```
+23514: check constraint "CK_Reservations_Price" of relation "Reservations" is violated by some row
+```
+
+The migration runs in a transaction, so nothing was left half-applied. The fix fills old reservations with their flight's current price (the best information available) **before** the constraint is added, then drops the column default, so new code must always set a price. Result on the development database: 11 existing reservations, none with a price of 0.
+
+Compare it with the [status migration](#the-migration-trap): that one failed **silently** and left reservations stuck. A constraint turns the same kind of mistake into a loud error.
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -550,6 +608,7 @@ These are known and deliberately left for later steps:
 - A flight that has expired reservations cannot be deleted (foreign key, `409`).
 - A seat comes back up to `ExpiryCheckInterval` (30 s) after the deadline, not exactly at it.
 - The circuit breaker state is per API instance.
+- Prices have no currency yet: every amount is assumed to be in Turkish lira.
 - No authentication yet.
 
 ## Roadmap
@@ -564,6 +623,7 @@ These are known and deliberately left for later steps:
 - [x] Caching (HybridCache + Redis, tag-based invalidation)
 - [x] Resilient calls to an external payment provider (timeout, retry, circuit breaker, idempotent charges)
 - [x] Reservation status and expiry with a background service
+- [x] Price agreed at booking (price snapshot)
 - [x] CI with GitHub Actions (build + unit and integration tests on every push)
 - [ ] Outbox pattern
 - [ ] Authentication / authorization, rate limiting

@@ -48,6 +48,12 @@ namespace FlyReservation.Api.Data
                 entity.Property(r => r.PaymentTransactionId).HasMaxLength(50);
                 // Stored as text: readable in psql, and adding a status never renumbers the old rows
                 entity.Property(r => r.Status).HasConversion<string>().HasMaxLength(20);
+                entity.Property(r => r.Price).HasPrecision(10, 2);
+
+                // The last line of defence: a reservation without a price must never reach the payment provider.
+                // Defense in depth
+                entity.ToTable(t => t.HasCheckConstraint("CK_Reservations_Price", "\"Price\" > 0"));
+
                 entity.HasIndex(r => r.IdempotencyKey).IsUnique();
                 entity.HasIndex(r => r.PnrCode).IsUnique();
 
