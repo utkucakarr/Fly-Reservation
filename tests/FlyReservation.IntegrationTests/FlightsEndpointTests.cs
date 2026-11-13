@@ -41,26 +41,6 @@ namespace FlyReservation.IntegrationTests
         }
 
         [Fact]
-        public async Task UpdateFlight_BelowSoldSeats_Returns409AndKeepsSeats()
-        {
-            var flight = await _client.CreateFlightAsync(totalSeats: 3);
-            var firstPassenger = await _client.CreatePassengerAsync();
-            var secondPassenger = await _client.CreatePassengerAsync();
-            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, firstPassenger.Id));
-            await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, secondPassenger.Id));
-            var update = new UpdateFlightRequest(
-                flight.FlightNumber, flight.Origin, flight.Destination,
-                flight.DepartureTime, flight.ArrivalTime, TotalSeats: 1, flight.Price);
-
-            var response = await _client.PutAsJsonAsync($"/api/flights/{flight.Id}", update);
-
-            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-            var flightAfter = await _client.GetFlightAsync(flight.Id);
-            Assert.Equal(3, flightAfter.TotalSeats);
-            Assert.Equal(1, flightAfter.AvailableSeats);
-        }
-
-        [Fact]
         public async Task GetFlights_PageSizeAboveLimit_Returns400()
         {
             var response = await _client.GetAsync("/api/flights?pageSize=101");

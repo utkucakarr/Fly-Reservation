@@ -26,7 +26,7 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 ## Features
 
 - **Flights, passengers, reservations:** full CRUD for flights and passengers; create, list, pay for and cancel reservations. Each reservation gets a unique 6-character PNR code.
-- **Seat rules:** booking takes a seat, cancelling gives it back, and a flight's total seats cannot drop below the seats already sold.
+- **Seat rules:** booking takes a seat and cancelling gives it back. A flight's total seats are set when it is created and cannot be changed by an update; a different aircraft would be a separate operation.
 - **Overbooking-safe under concurrency:** a single atomic SQL statement checks and takes the seat, so two requests can never take the same last seat.
 - **Idempotent bookings:** a retry or double click with the same `Idempotency-Key` header gets the original reservation back instead of creating a second one. A passenger can hold only one seat per flight.
 - **Paged list and indexed search:** the flight list is paged (`pageSize` capped at 100), and searching by route and day uses a composite index instead of scanning the whole table.
@@ -87,7 +87,6 @@ tests/
 | Passenger already has a reservation on this flight | `409` |
 | `Idempotency-Key` reused for a different request | `422` |
 | Paying for an expired reservation; cancelling a paid or expired one | `409` |
-| Total seats lowered below the seats already sold | `409` |
 | Duplicate value (unique index, PostgreSQL `23505`) | `409` |
 | Record still referenced, e.g. deleting a flight that has reservations (`23503`) | `409` |
 | Payment provider unavailable (retries used up, timeout, or circuit open) | `503` |
@@ -303,7 +302,7 @@ Idempotency-Key: 6f1c2a9e-4b7d-4d2e-9a51-3e8f0c7b2d14
 |---|---|
 | Key seen for the first time | Book as usual, store the key with the reservation → `201` |
 | Same key again | No new booking, the original reservation comes back → `201`, same PNR |
-| Same key, concurrent requests | The reservation is inserted **before** the seat update, so the others wait on the unique index on the key, then get the same `201` |
+| Same key, concurrent requests | The reservation is inserted **before** the seat update, so the others wait on the unique index on the key, then get the same `201`. A request that sees the passenger's new booking before it sees the key looks the key up once more and also gets the same `201` instead of `409` |
 | Same key, different flight or passenger | `422 Unprocessable Entity` |
 
 ### Why both?
@@ -597,7 +596,7 @@ Compare it with the [status migration](#the-migration-trap): that one failed **s
 
 These are known and deliberately left for later steps:
 
-- Updating a flight's total seats while bookings are in progress is not concurrency-safe.
+- If two people edit the same flight or passenger at the same time, the last save wins and silently overwrites the other's change (lost update).
 - Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
 - Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
 - If Redis goes down, the API keeps working, but every cache miss first waits for the Redis client's timeout (measured 5.9–13.5 s) before it goes to the database. The resilience handler only covers `HttpClient`, not Redis.

@@ -6,6 +6,5 @@ namespace FlyReservation.Api.Dtos
         string Destination,
         DateTime DepartureTime,
         DateTime ArrivalTime,
-        int TotalSeats,
         decimal Price);
 }

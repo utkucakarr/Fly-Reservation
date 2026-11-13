@@ -59,7 +59,7 @@ namespace FlyReservation.IntegrationTests
         public static async Task ChangeFlightPriceAsync(this HttpClient client, FlightResponse flight, decimal price)
         {
             var request = new UpdateFlightRequest(flight.FlightNumber, flight.Origin, flight.Destination,
-                flight.DepartureTime, flight.ArrivalTime, flight.TotalSeats, price);
+                flight.DepartureTime, flight.ArrivalTime, price);
 
             var response = await client.PutAsJsonAsync($"/api/flights/{flight.Id}", request);
             response.EnsureSuccessStatusCode();

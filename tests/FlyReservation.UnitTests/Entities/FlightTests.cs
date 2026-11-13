@@ -48,29 +48,5 @@ namespace FlyReservation.UnitTests.Entities
 
             Assert.Equal(1, flight.AvailableSeats);
         }
-
-        [Theory]
-        [InlineData(5, 3)]
-        [InlineData(2, 0)]
-        public void ChangeTotalSeats_WhenNotBelowSoldSeats_RecalculatesAvailableSeats(int newTotalSeats, int expectedAvailableSeats)
-        {
-            var flight = CreateFlight(totalSeats: 4, availableSeats: 2); // 2 seats sold
-
-            flight.ChangeTotalSeats(newTotalSeats);
-
-            Assert.Equal(newTotalSeats, flight.TotalSeats);
-            Assert.Equal(expectedAvailableSeats, flight.AvailableSeats);
-        }
-
-        [Fact]
-        public void ChangeTotalSeats_WhenBelowSoldSeats_ThrowsAndKeepsSeats()
-        {
-            var flight = CreateFlight(totalSeats: 4, availableSeats: 2); // 2 seats sold
-
-            Assert.Throws<ConflictException>(() => flight.ChangeTotalSeats(1));
-
-            Assert.Equal(4, flight.TotalSeats);
-            Assert.Equal(2, flight.AvailableSeats);
-        }
     }
 }

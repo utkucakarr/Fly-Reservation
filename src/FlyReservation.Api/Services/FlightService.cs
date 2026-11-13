@@ -65,7 +65,7 @@ namespace FlyReservation.Api.Services
         {
             var flight = await FindAsync(id);
 
-            flight.ChangeTotalSeats(request.TotalSeats);
+            // Total seats are fixed at creation; changing them would be an aircraft change, a separate operation
             flight.FlightNumber = request.FlightNumber;
             flight.Origin = request.Origin;
             flight.Destination = request.Destination;

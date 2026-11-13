@@ -55,7 +55,7 @@ namespace FlyReservation.Api.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-        [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // fewer seats than sold, or a duplicate flight
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // same flight number and departure time as another flight
         public async Task<IActionResult> Update(int id, UpdateFlightRequest request)
         {
             await _flightService.UpdateAsync(id, request);

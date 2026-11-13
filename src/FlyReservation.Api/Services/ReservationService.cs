@@ -79,7 +79,18 @@ namespace FlyReservation.Api.Services
                     && r.PassengerId == request.PassengerId
                     && r.Status != ReservationStatus.Expired);
             if (alreadyBooked)
+            {
+                // A request with the same key may have committed after our first key check (double click, retry).
+                // Then this "existing" reservation is that request's result: give it back instead of 409
+                if (idempotencyKey is not null)
+                {
+                    var winner = await FindByIdempotencyKeyAsync(idempotencyKey);
+                    if (winner is not null)
+                        return ToReplayResponse(winner, request);
+                }
+
                 throw new ConflictException($"Passenger {request.PassengerId} already has a reservation on flight {flight.FlightNumber}.");
+            }
 
             // The seat decrement and the reservation insert must succeed or fail together
             await using var transaction = await _context.Database.BeginTransactionAsync();
