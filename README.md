@@ -597,6 +597,8 @@ Two admins open the same flight. Both forms show 900 TL and 08:00:
 
 Both got `204`, nobody saw an error, and the price increase was gone: a **lost update**. An integration test reproduced it (`Expected: 1200, Actual: 900.00`), and another one did the same to a passenger (an email change undone by a last-name change).
 
+![Before: the second admin's save undid the first one's price change, Expected 1200, Actual 900](docs/images/21d-before-lost-update.png)
+
 A transaction or a lock cannot help here. The read and the write are two HTTP requests, possibly minutes apart, and the server cannot keep a transaction open while someone fills in a form. The client has to tell the server which version its form was built from.
 
 ### The fix: optimistic concurrency with ETag and If-Match
@@ -615,6 +617,8 @@ flight.Version = expectedVersion + 1;
 
 Optimistic concurrency was rejected for seat booking ([overbooking story](#four-fixes-measured-with-the-same-tests)) because there every request competes for the same row. Two admins editing the same flight in the same minute is rare, so here it fits: no locks, and only the one who conflicts pays.
 
+![After: the second admin gets 412 and the first admin's change is kept](docs/images/21d-after-second-admin-412.png)
+
 ### New problem: false conflicts on busy flights
 
 The first version used PostgreSQL's `xmin` system column as the version (no migration needed). But `xmin` changes on **every** write to the row, and a booking decrements `AvailableSeats` on the flight's row:
@@ -629,6 +633,10 @@ Nobody had touched the price, so the admin's change was safe. On a flight that s
 |---|---|---|
 | Two admins save from the same read | second gets `412` ✅ | second gets `412` ✅ |
 | A booking between the admin's read and save | `412` ❌ | `204` ✅ |
+
+| With `xmin`: a booking in between, the admin gets `412` | With the `Version` column: the admin saves |
+|---|---|
+| ![Before: false 412 after a booking, ETag 751 became 753](docs/images/21d-before-xmin-false-412.png) | ![After: the admin saves although a booking came in between](docs/images/21d-after-version-admin-saves.png) |
 
 ### The migration trap, again
 
