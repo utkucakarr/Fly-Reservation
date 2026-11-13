@@ -52,7 +52,6 @@ Content-Type: application/json
   "destination": "AYT",
   "departureTime": "2026-12-01T08:00:00Z",
   "arrivalTime": "2026-12-01T09:15:00Z",
-  "totalSeats": 5,
   "price": 900
 }
 

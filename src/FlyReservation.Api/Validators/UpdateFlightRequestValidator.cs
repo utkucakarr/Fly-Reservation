@@ -28,9 +28,6 @@ namespace FlyReservation.Api.Validators
                 .GreaterThan(x => x.DepartureTime)
                 .WithMessage("Arrival time must be after departure time.");
 
-            RuleFor(x => x.TotalSeats)
-                .InclusiveBetween(1, 1000);
-
             RuleFor(x => x.Price)
                 .GreaterThan(0);
         }

@@ -29,15 +29,5 @@ namespace FlyReservation.Api.Entities
         {
             AvailableSeats++;
         }
-
-        public void ChangeTotalSeats(int totalSeats)
-        {
-            var soldSeats = TotalSeats - AvailableSeats;
-            if (totalSeats < soldSeats)
-                throw new ConflictException($"Total seats cannot be less than the {soldSeats} seats already sold.");
-
-            TotalSeats = totalSeats;
-            AvailableSeats = totalSeats - soldSeats;
-        }
     }
 }
