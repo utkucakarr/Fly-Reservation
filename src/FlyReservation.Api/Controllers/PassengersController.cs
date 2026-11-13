@@ -28,7 +28,11 @@ namespace FlyReservation.Api.Controllers
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<PassengerResponse>> GetById(int id)
         {
-            return Ok(await _passengerService.GetByIdAsync(id));
+            var (passenger, version) = await _passengerService.GetByIdAsync(id);
+
+            // The client sends this back in If-Match when it updates the passenger
+            Response.Headers.ETag = ETags.From(version);
+            return Ok(passenger);
         }
 
         [HttpPost]
@@ -46,9 +50,14 @@ namespace FlyReservation.Api.Controllers
         [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // the email is already used
-        public async Task<IActionResult> Update(int id, UpdatePassengerRequest request)
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status412PreconditionFailed)]   // changed by someone else after the client's GET
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status428PreconditionRequired)] // no If-Match header
+        public async Task<IActionResult> Update(int id, UpdatePassengerRequest request, [FromHeader(Name = "If-Match")] string? ifMatch)
         {
-            await _passengerService.UpdateAsync(id, request);
+            var newVersion = await _passengerService.UpdateAsync(id, request, ETags.ParseIfMatch(ifMatch));
+
+            // The new version, so the client can save again without another GET
+            Response.Headers.ETag = ETags.From(newVersion);
             return NoContent();
         }
 

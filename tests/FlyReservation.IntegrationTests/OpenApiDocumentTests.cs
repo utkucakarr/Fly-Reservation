@@ -19,6 +19,8 @@ namespace FlyReservation.IntegrationTests
         [InlineData("/api/Reservations/{id}/payment", "post", new[] { "200", "404", "409", "503" })]
         [InlineData("/api/Flights", "post", new[] { "201", "400", "409" })]
         [InlineData("/api/Flights/{id}", "get", new[] { "200", "404" })]
+        [InlineData("/api/Flights/{id}", "put", new[] { "204", "400", "404", "409", "412", "428" })]
+        [InlineData("/api/Passengers/{id}", "put", new[] { "204", "400", "404", "409", "412", "428" })]
         public async Task OpenApi_ListsTheStatusCodesTheEndpointReturns(string path, string method, string[] expected)
         {
             using var document = JsonDocument.Parse(await _client.GetStringAsync("/openapi/v1.json"));

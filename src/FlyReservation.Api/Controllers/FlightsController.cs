@@ -30,7 +30,11 @@ namespace FlyReservation.Api.Controllers
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<FlightResponse>> GetById(int id)
         {
-            return Ok(await _flightService.GetByIdAsync(id));
+            var (flight, version) = await _flightService.GetByIdAsync(id);
+
+            // The client sends this back in If-Match when it updates the flight
+            Response.Headers.ETag = ETags.From(version);
+            return Ok(flight);
         }
 
         [HttpGet("search")]
@@ -56,9 +60,14 @@ namespace FlyReservation.Api.Controllers
         [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // same flight number and departure time as another flight
-        public async Task<IActionResult> Update(int id, UpdateFlightRequest request)
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status412PreconditionFailed)]   // changed by someone else after the client's GET
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status428PreconditionRequired)] // no If-Match header
+        public async Task<IActionResult> Update(int id, UpdateFlightRequest request, [FromHeader(Name = "If-Match")] string? ifMatch)
         {
-            await _flightService.UpdateAsync(id, request);
+            var newVersion = await _flightService.UpdateAsync(id, request, ETags.ParseIfMatch(ifMatch));
+
+            // The new version, so the client can save again without another GET
+            Response.Headers.ETag = ETags.From(newVersion);
             return NoContent();
         }
 

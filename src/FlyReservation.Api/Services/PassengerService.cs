@@ -21,10 +21,10 @@ namespace FlyReservation.Api.Services
             return passengers.Select(ToResponse).ToList();
         }
 
-        public async Task<PassengerResponse> GetByIdAsync(int id)
+        public async Task<(PassengerResponse Passenger, int Version)> GetByIdAsync(int id)
         {
             var passenger = await FindAsync(id);
-            return ToResponse(passenger);
+            return (ToResponse(passenger), passenger.Version);
         }
 
         public async Task<PassengerResponse> CreateAsync(CreatePassengerRequest request)
@@ -43,16 +43,31 @@ namespace FlyReservation.Api.Services
             return ToResponse(passenger);
         }
 
-        public async Task UpdateAsync(int id, UpdatePassengerRequest request)
+        public async Task<int> UpdateAsync(int id, UpdatePassengerRequest request, int expectedVersion)
         {
             var passenger = await FindAsync(id);
+
+            // Same as FlightService.UpdateAsync: the WHERE checks the version the client read (If-Match)
+            _context.Entry(passenger).Property(p => p.Version).OriginalValue = expectedVersion;
+            passenger.Version = expectedVersion + 1;
 
             passenger.FirstName = request.FirstName;
             passenger.LastName = request.LastName;
             passenger.Email = request.Email;
             passenger.PassportNumber = request.PassportNumber;
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // 0 rows updated: someone else saved the passenger after the client read it
+                throw new PreconditionFailedException(
+                    $"Passenger {id} was changed after you read it. Get it again and reapply your changes.");
+            }
+
+            return passenger.Version;
         }
 
         public async Task DeleteAsync(int id)

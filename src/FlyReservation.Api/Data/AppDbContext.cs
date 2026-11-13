@@ -26,6 +26,10 @@ namespace FlyReservation.Api.Data
                 // Flight search: equality columns first, the range column (DepartureTime) last
                 entity.HasIndex(f => new { f.Origin, f.Destination, f.DepartureTime });
 
+                // Optimistic concurrency: EF Core adds "WHERE "Version" = <original value>" to every UPDATE and DELETE of a flight.
+                // Not xmin: xmin changes on every write to the row, bookings included (false 412s on busy flights)
+                entity.Property(f => f.Version).IsConcurrencyToken();
+
                 entity.ToTable(t => t.HasCheckConstraint(
                     "CK_Flights_AvailableSeats",
                     "\"AvailableSeats\" >= 0 AND \"AvailableSeats\" <= \"TotalSeats\""));
@@ -39,6 +43,9 @@ namespace FlyReservation.Api.Data
                 entity.Property(p => p.PassportNumber).HasMaxLength(20);
 
                 entity.HasIndex(p => p.Email).IsUnique();
+
+                // Optimistic concurrency, same as flights
+                entity.Property(p => p.Version).IsConcurrencyToken();
             });
 
             modelBuilder.Entity<Reservation>(entity =>

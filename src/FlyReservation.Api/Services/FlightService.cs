@@ -34,10 +34,10 @@ namespace FlyReservation.Api.Services
             return new PagedResponse<FlightResponse>(flights.Select(ToResponse).ToList(), request.Page, request.PageSize, totalCount);
         }
 
-        public async Task<FlightResponse> GetByIdAsync(int id)
+        public async Task<(FlightResponse Flight, int Version)> GetByIdAsync(int id)
         {
             var flight = await FindAsync(id);
-            return ToResponse(flight);
+            return (ToResponse(flight), flight.Version);
         }
 
         public async Task<FlightResponse> CreateAsync(CreateFlightRequest request)
@@ -61,9 +61,16 @@ namespace FlyReservation.Api.Services
             return ToResponse(flight);
         }
 
-        public async Task UpdateAsync(int id, UpdateFlightRequest request)
+        public async Task<int> UpdateAsync(int id, UpdateFlightRequest request, int expectedVersion)
         {
             var flight = await FindAsync(id);
+
+            // Compare against the version the client's form was built from (If-Match), not the one we just read:
+            // EF puts this original value into the UPDATE's WHERE, so the check and the write are one statement
+            _context.Entry(flight).Property(f => f.Version).OriginalValue = expectedVersion;
+
+            // The next version. Also makes every save an UPDATE (with the WHERE check), even if no field changed
+            flight.Version = expectedVersion + 1;
 
             // Total seats are fixed at creation; changing them would be an aircraft change, a separate operation
             flight.FlightNumber = request.FlightNumber;
@@ -73,8 +80,21 @@ namespace FlyReservation.Api.Services
             flight.ArrivalTime = request.ArrivalTime;
             flight.Price = request.Price;
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // 0 rows updated: someone else saved the flight after the client read it
+                throw new PreconditionFailedException(
+                    $"Flight {id} was changed after you read it. Get it again and reapply your changes.");
+            }
+
             await _cache.RemoveByTagAsync(CacheTags.FlightSearch);
+
+            // The client's next If-Match
+            return flight.Version;
         }
 
         public async Task DeleteAsync(int id)

@@ -5,9 +5,9 @@ namespace FlyReservation.Api.Services
     public interface IPassengerService
     {
         Task<List<PassengerResponse>> GetAllAsync();
-        Task<PassengerResponse> GetByIdAsync(int id);
+        Task<(PassengerResponse Passenger, int Version)> GetByIdAsync(int id);
         Task<PassengerResponse> CreateAsync(CreatePassengerRequest request);
-        Task UpdateAsync(int id, UpdatePassengerRequest request);
+        Task<int> UpdateAsync(int id, UpdatePassengerRequest request, int expectedVersion);
         Task DeleteAsync(int id);
     }
 }

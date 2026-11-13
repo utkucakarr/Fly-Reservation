@@ -40,6 +40,69 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
 
+        // Lost update: two admins open the same flight, both save; the second must not silently undo the first
+        [Fact]
+        public async Task UpdateFlight_TwoAdminsEditTheSameRead_SecondGets412AndFirstChangeIsKept()
+        {
+            var flight = await _client.CreateFlightAsync(totalSeats: 10);       // price 900
+            var (ayseCopy, ayseETag) = await _client.GetFlightForEditAsync(flight.Id);
+            var (mehmetCopy, mehmetETag) = await _client.GetFlightForEditAsync(flight.Id);
+
+            // Ayşe raises the price
+            var ayse = await _client.PutFlightAsync(flight.Id,
+                ayseCopy.ToUpdateRequest() with { Price = 1200 }, ayseETag);
+
+            // Mehmet moves the departure; his form still shows the old price and the old version
+            var mehmet = await _client.PutFlightAsync(flight.Id,
+                mehmetCopy.ToUpdateRequest() with
+                {
+                    DepartureTime = mehmetCopy.DepartureTime.AddHours(1),
+                    ArrivalTime = mehmetCopy.ArrivalTime.AddHours(1)
+                }, mehmetETag);
+
+            Assert.Equal(HttpStatusCode.NoContent, ayse.StatusCode);
+            Assert.NotEqual(ayseETag, ayse.Headers.ETag?.ToString());         // a new version after the save
+            Assert.Equal(HttpStatusCode.PreconditionFailed, mehmet.StatusCode);
+
+            var after = await _client.GetFlightAsync(flight.Id);
+            Assert.Equal(1200m, after.Price);
+            Assert.Equal(ayseCopy.DepartureTime, after.DepartureTime);
+        }
+
+        [Fact]
+        public async Task UpdateFlight_WithoutIfMatch_Returns428AndChangesNothing()
+        {
+            var flight = await _client.CreateFlightAsync(totalSeats: 10);       // price 900
+            var (copy, _) = await _client.GetFlightForEditAsync(flight.Id);
+
+            var response = await _client.PutFlightAsync(flight.Id, copy.ToUpdateRequest() with { Price = 1200 }, eTag: null);
+
+            Assert.Equal(HttpStatusCode.PreconditionRequired, response.StatusCode);
+            Assert.Equal(900m, (await _client.GetFlightAsync(flight.Id)).Price);
+        }
+
+        // A booking changes AvailableSeats on the same row, but it is not an edit of the flight:
+        // nothing the admin is editing changed, so the admin must not get 412
+        [Fact]
+        public async Task UpdateFlight_BookingBetweenReadAndSave_AdminStillSaves()
+        {
+            var flight = await _client.CreateFlightAsync(totalSeats: 10);       // price 900
+            var (adminCopy, adminETag) = await _client.GetFlightForEditAsync(flight.Id);
+
+            // A passenger books a seat while the admin's form is open
+            var passenger = await _client.CreatePassengerAsync();
+            var booking = await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
+            Assert.Equal(HttpStatusCode.Created, booking.StatusCode);
+
+            var response = await _client.PutFlightAsync(flight.Id, adminCopy.ToUpdateRequest() with { Price = 1200 }, adminETag);
+
+            var (after, eTagNow) = await _client.GetFlightForEditAsync(flight.Id);
+            Assert.True(response.StatusCode == HttpStatusCode.NoContent,
+                $"Expected 204, got {(int)response.StatusCode}. The admin read the flight at ETag {adminETag}, it is now at {eTagNow}");
+            Assert.Equal(1200m, after.Price);
+            Assert.Equal(9, after.AvailableSeats);                             // the booking is kept too
+        }
+
         [Fact]
         public async Task GetFlights_PageSizeAboveLimit_Returns400()
         {

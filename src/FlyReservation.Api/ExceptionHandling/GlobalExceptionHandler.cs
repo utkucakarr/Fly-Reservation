@@ -53,6 +53,12 @@ namespace FlyReservation.Api.ExceptionHandling
                 IdempotencyKeyReusedException reused
                     => (StatusCodes.Status422UnprocessableEntity, reused.Message),
 
+                PreconditionFailedException preconditionFailed
+                    => (StatusCodes.Status412PreconditionFailed, preconditionFailed.Message),
+
+                PreconditionRequiredException preconditionRequired
+                    => (StatusCodes.Status428PreconditionRequired, preconditionRequired.Message),
+
                 PaymentUnavailableException paymentUnavailable
                     => (StatusCodes.Status503ServiceUnavailable, paymentUnavailable.Message),
 
