@@ -34,6 +34,7 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 - **Payments through an external provider:** `POST /api/reservations/{id}/payment` calls a payment service over HTTP with timeouts, retries and a circuit breaker. Every attempt carries the same `Idempotency-Key`, so a retry never charges the card twice. When the provider is unavailable the API answers `503` instead of hanging.
 - **Unpaid reservations expire:** a new reservation is `PendingPayment` and holds its seat for 15 minutes. Paying makes it `Confirmed`; if nobody pays, a background service marks it `Expired` and puts the seat back on sale. An expired reservation can no longer be paid, so no money is taken for a seat that may already be sold.
 - **Price agreed at booking:** the reservation stores the flight's price at the moment of booking, and paying charges that price, even if the flight's price changes in between.
+- **Safe concurrent edits:** `GET` returns a flight's or passenger's version in an `ETag` header and `PUT` must send it back in `If-Match`. If someone else saved in between, the update gets `412` instead of silently overwriting their change; without `If-Match` it gets `428`. Bookings do not change the version, so editing a busy flight still works.
 - **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and check constraints `0 <= AvailableSeats <= TotalSeats` and `Price > 0`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
@@ -87,6 +88,8 @@ tests/
 | Passenger already has a reservation on this flight | `409` |
 | `Idempotency-Key` reused for a different request | `422` |
 | Paying for an expired reservation; cancelling a paid or expired one | `409` |
+| `PUT` with an old `If-Match`: someone saved the record after the client's `GET` | `412` |
+| `PUT` without `If-Match` | `428` |
 | Duplicate value (unique index, PostgreSQL `23505`) | `409` |
 | Record still referenced, e.g. deleting a flight that has reservations (`23503`) | `409` |
 | Payment provider unavailable (retries used up, timeout, or circuit open) | `503` |
@@ -108,14 +111,14 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 |---|---|---|
 | `GET` | `/api/flights?page=1&pageSize=20` | List flights, paged (`pageSize` 1–100, ordered by id) |
 | `GET` | `/api/flights/search?origin=IST&destination=AYT&date=2026-12-15` | Flights on a route on one day, ordered by departure time |
-| `GET` | `/api/flights/{id}` | Get a flight |
+| `GET` | `/api/flights/{id}` | Get a flight; its version is in the `ETag` header |
 | `POST` | `/api/flights` | Create a flight |
-| `PUT` | `/api/flights/{id}` | Update a flight (seat count is recalculated) |
+| `PUT` | `/api/flights/{id}` | Update a flight's number, route, times and price (the seat count is fixed at creation). Requires `If-Match` with the `ETag` from `GET` |
 | `DELETE` | `/api/flights/{id}` | Delete a flight (409 if it has reservations) |
 | `GET` | `/api/passengers` | List passengers |
-| `GET` | `/api/passengers/{id}` | Get a passenger |
+| `GET` | `/api/passengers/{id}` | Get a passenger; its version is in the `ETag` header |
 | `POST` | `/api/passengers` | Create a passenger (email is unique) |
-| `PUT` | `/api/passengers/{id}` | Update a passenger |
+| `PUT` | `/api/passengers/{id}` | Update a passenger. Requires `If-Match` with the `ETag` from `GET` |
 | `DELETE` | `/api/passengers/{id}` | Delete a passenger (409 if they have reservations) |
 | `GET` | `/api/reservations` | List reservations |
 | `GET` | `/api/reservations/{id}` | Get a reservation |
@@ -171,8 +174,8 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 
 | Project | Count | What it covers |
 |---|---|---|
-| `FlyReservation.UnitTests` | 35 tests | Seat rules on the `Flight` entity; validation of flight, reservation, paging and search requests (including the page size limits) |
-| `FlyReservation.IntegrationTests` | 41 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the price charged after a price change, the status codes in the OpenAPI document |
+| `FlyReservation.UnitTests` | 32 tests | Seat rules on the `Flight` entity; validation of flight, reservation, paging and search requests (including the page size limits) |
+| `FlyReservation.IntegrationTests` | 47 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the price charged after a price change, `412`/`428` for stale or missing `If-Match`, the status codes in the OpenAPI document |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
@@ -580,6 +583,63 @@ The migration runs in a transaction, so nothing was left half-applied. The fix f
 
 Compare it with the [status migration](#the-migration-trap): that one failed **silently** and left reservations stuck. A constraint turns the same kind of mistake into a loud error.
 
+## Concurrent edits
+
+### The problem
+
+Two admins open the same flight. Both forms show 900 TL and 08:00:
+
+| Time | Admin A | Admin B | Saved |
+|---|---|---|---|
+| 10:00 | Opens the flight | Opens the flight | 900 / 08:00 |
+| 10:02 | Raises the price to 1200 → `204` | | 1200 / 08:00 |
+| 10:03 | | Moves the departure to 09:00, the form still shows 900 → `204` | **900** / 09:00 |
+
+Both got `204`, nobody saw an error, and the price increase was gone: a **lost update**. An integration test reproduced it (`Expected: 1200, Actual: 900.00`), and another one did the same to a passenger (an email change undone by a last-name change).
+
+A transaction or a lock cannot help here. The read and the write are two HTTP requests, possibly minutes apart, and the server cannot keep a transaction open while someone fills in a form. The client has to tell the server which version its form was built from.
+
+### The fix: optimistic concurrency with ETag and If-Match
+
+- `GET /api/flights/{id}` returns the flight's version in an `ETag` header, e.g. `"7"`.
+- `PUT` sends it back in `If-Match`. The check and the write are one statement: `UPDATE ... SET ..., "Version" = 8 WHERE "Id" = 5 AND "Version" = 7`. If no row matches, someone saved in between: `412 Precondition Failed`, and the client gets the flight again and reapplies its change.
+- Without `If-Match` the answer is `428 Precondition Required`. Otherwise a client that forgets the header would be back to "last write wins".
+- A successful `PUT` returns the new `ETag`, so the same admin can save again without another `GET`.
+
+In EF Core the version is a concurrency token. The service sets its original value to the client's `If-Match`, so that value goes into the `WHERE`, not the one the service has just read:
+
+```csharp
+_context.Entry(flight).Property(f => f.Version).OriginalValue = expectedVersion;   // from If-Match
+flight.Version = expectedVersion + 1;
+```
+
+Optimistic concurrency was rejected for seat booking ([overbooking story](#four-fixes-measured-with-the-same-tests)) because there every request competes for the same row. Two admins editing the same flight in the same minute is rare, so here it fits: no locks, and only the one who conflicts pays.
+
+### New problem: false conflicts on busy flights
+
+The first version used PostgreSQL's `xmin` system column as the version (no migration needed). But `xmin` changes on **every** write to the row, and a booking decrements `AvailableSeats` on the flight's row:
+
+```
+Expected 204, got 412. The admin read the flight at ETag "751", it is now at "753"
+```
+
+Nobody had touched the price, so the admin's change was safe. On a flight that sells a seat every few seconds, an admin might never manage to save. The version now lives in its own `Version` column that only admin updates increase. Bookings keep using their own atomic `UPDATE` and leave it alone.
+
+| | `xmin` | `Version` column |
+|---|---|---|
+| Two admins save from the same read | second gets `412` ✅ | second gets `412` ✅ |
+| A booking between the admin's read and save | `412` ❌ | `204` ✅ |
+
+### The migration trap, again
+
+EF Core scaffolded the switch as "rename the `xmin` column to `Version`". `xmin` is a system column, and the tests stopped at the migration:
+
+```
+0A000: cannot rename system column "xmin"
+```
+
+The migration was rewritten by hand to add a new column (`ALTER TABLE "Flights" ADD "Version" integer NOT NULL DEFAULT 0`) and leave `xmin` alone. A scaffolded migration is EF Core's guess; reading it, and the SQL it produces, is part of the job.
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -596,7 +656,8 @@ Compare it with the [status migration](#the-migration-trap): that one failed **s
 
 These are known and deliberately left for later steps:
 
-- If two people edit the same flight or passenger at the same time, the last save wins and silently overwrites the other's change (lost update).
+- `DELETE` does not check `If-Match`: a flight or passenger can be deleted while someone is editing it.
+- Passenger responses leave out the passport number on purpose, but `PUT` replaces the whole passenger and requires it, so an edit form has to ask for it again.
 - Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
 - Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
 - If Redis goes down, the API keeps working, but every cache miss first waits for the Redis client's timeout (measured 5.9–13.5 s) before it goes to the database. The resilience handler only covers `HttpClient`, not Redis.
@@ -623,6 +684,7 @@ These are known and deliberately left for later steps:
 - [x] Resilient calls to an external payment provider (timeout, retry, circuit breaker, idempotent charges)
 - [x] Reservation status and expiry with a background service
 - [x] Price agreed at booking (price snapshot)
+- [x] Safe concurrent edits (optimistic concurrency, ETag / If-Match)
 - [x] CI with GitHub Actions (build + unit and integration tests on every push)
 - [ ] Outbox pattern
 - [ ] Authentication / authorization, rate limiting

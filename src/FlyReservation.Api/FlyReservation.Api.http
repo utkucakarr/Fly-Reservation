@@ -42,9 +42,15 @@ Content-Type: application/json
 ### 4) Bring with id
 GET {{baseUrl}}/api/flights/1
 
-### 5) Update (price and clock changed)
+### 5a) Read the flight to edit: the response's ETag header is its version
+# @name flightToEdit
+GET {{baseUrl}}/api/flights/15
+
+### 5) Update (price and clock changed). Send 5a first: If-Match carries its ETag
+# Without If-Match → 428. With an old ETag (someone saved in between) → 412
 PUT {{baseUrl}}/api/flights/15
 Content-Type: application/json
+If-Match: {{flightToEdit.response.headers.ETag}}
 
 {
   "flightNumber": "XQ1",

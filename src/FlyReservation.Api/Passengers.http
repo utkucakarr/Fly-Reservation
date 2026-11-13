@@ -15,12 +15,15 @@ Content-Type: application/json
   "passportNumber": "TR7654321"
 }
 
-### 3) Get passenger by id
+### 3) Get passenger by id: the response's ETag header is its version
+# @name passengerToEdit
 GET {{baseUrl}}/api/passengers/1
 
-### 4) Update passenger
+### 4) Update passenger. Send 3 first: If-Match carries its ETag
+# Without If-Match → 428. With an old ETag (someone saved in between) → 412
 PUT {{baseUrl}}/api/passengers/1
 Content-Type: application/json
+If-Match: {{passengerToEdit.response.headers.ETag}}
 
 {
   "firstName": "Ayşe",

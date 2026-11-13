@@ -15,6 +15,10 @@ namespace FlyReservation.Api.Entities
         public decimal Price { get; set; }
         public List<Reservation> Reservations { get; set; } = new();
 
+        // Concurrency token for admin edits (ETag / If-Match). Only FlightService.UpdateAsync increases it:
+        // bookings change AvailableSeats with their own atomic UPDATE and leave it alone, so they cause no false 412
+        public int Version { get; set; }
+
         // Seat rules live on the entity so they can be unit tested without a database
 
         public void ReserveSeat()

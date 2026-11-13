@@ -61,6 +61,10 @@ namespace FlyReservation.Api.Migrations
                     b.Property<int>("TotalSeats")
                         .HasColumnType("integer");
 
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("FlightNumber", "DepartureTime")
@@ -101,6 +105,10 @@ namespace FlyReservation.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
