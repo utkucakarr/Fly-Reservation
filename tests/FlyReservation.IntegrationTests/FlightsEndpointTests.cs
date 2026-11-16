@@ -19,7 +19,7 @@ namespace FlyReservation.IntegrationTests
         {
             var request = new CreateFlightRequest("", "IST", "IST", DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(-2), -50, -100);
 
-            var response = await _client.PostAsJsonAsync("/api/flights", request);
+            var response = await _client.PostFlightAsync(request);
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>();
@@ -35,7 +35,7 @@ namespace FlyReservation.IntegrationTests
                 flight.FlightNumber, flight.Origin, flight.Destination,
                 flight.DepartureTime, flight.ArrivalTime, flight.TotalSeats, flight.Price);
 
-            var response = await _client.PostAsJsonAsync("/api/flights", duplicate);
+            var response = await _client.PostFlightAsync(duplicate);
 
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         }
@@ -181,7 +181,7 @@ namespace FlyReservation.IntegrationTests
                 TotalSeats: 10,
                 Price: 500);
 
-            var response = await _client.PostAsJsonAsync("/api/flights", request);
+            var response = await _client.PostFlightAsync(request);
             response.EnsureSuccessStatusCode();
 
             return (await response.Content.ReadFromJsonAsync<FlightResponse>())!;

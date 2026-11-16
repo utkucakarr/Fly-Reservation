@@ -59,6 +59,12 @@ namespace FlyReservation.Api.ExceptionHandling
                 PreconditionRequiredException preconditionRequired
                     => (StatusCodes.Status428PreconditionRequired, preconditionRequired.Message),
 
+                InvalidCredentialsException invalidCredentials
+                    => (StatusCodes.Status401Unauthorized, invalidCredentials.Message),
+
+                InvalidRefreshTokenException invalidRefreshToken
+                    => (StatusCodes.Status401Unauthorized, invalidRefreshToken.Message),
+
                 PaymentUnavailableException paymentUnavailable
                     => (StatusCodes.Status503ServiceUnavailable, paymentUnavailable.Message),
 

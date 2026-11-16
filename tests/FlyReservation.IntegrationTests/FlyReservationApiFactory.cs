@@ -1,3 +1,4 @@
+using FlyReservation.Api.Auth;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Hosting;
@@ -22,6 +23,9 @@ namespace FlyReservation.IntegrationTests
 
             // A throwaway Redis too, so tests never share cache entries with the development Redis
             builder.UseSetting("ConnectionStrings:Redis", _redis.GetConnectionString());
+
+            // The real key is a user secret and does not exist on the CI machine. Any 32+ byte text works for tests
+            builder.UseSetting("Jwt:Key", "integration-tests-signing-key-0123456789");
         }
 
         public async Task InitializeAsync()
@@ -31,6 +35,9 @@ namespace FlyReservation.IntegrationTests
             using var scope = Services.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await context.Database.MigrateAsync();
+
+            // The admin the tests log in as (ApiTestHelpers.GetAdminTokenAsync)
+            await AdminSeeder.SeedAsync(Services, ApiTestHelpers.AdminEmail, ApiTestHelpers.AdminPassword);
         }
 
         async Task IAsyncLifetime.DisposeAsync()

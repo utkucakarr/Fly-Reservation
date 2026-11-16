@@ -12,6 +12,8 @@ namespace FlyReservation.Api.Data
         public DbSet<Flight> Flights => Set<Flight>();
         public DbSet<Passenger> Passengers => Set<Passenger>();
         public DbSet<Reservation> Reservations => Set<Reservation>();
+        public DbSet<User> Users => Set<User>();
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -46,6 +48,32 @@ namespace FlyReservation.Api.Data
 
                 // Optimistic concurrency, same as flights
                 entity.Property(p => p.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<User>(entity =>
+            {
+                entity.Property(u => u.Email).HasMaxLength(100);
+                entity.Property(u => u.PasswordHash).HasMaxLength(200);
+                entity.Property(u => u.Role).HasMaxLength(20);
+
+                // Emails are stored lower-case, so this also stops "Admin@..." next to "admin@..."
+                entity.HasIndex(u => u.Email).IsUnique();
+            });
+
+            modelBuilder.Entity<RefreshToken>(entity =>
+            {
+                entity.Property(t => t.TokenHash).HasMaxLength(64);     // SHA-256 as hex
+
+                // Every refresh looks the token up by its hash
+                entity.HasIndex(t => t.TokenHash).IsUnique();
+                // Revoking a family (reuse, logout)
+                entity.HasIndex(t => t.FamilyId);
+
+                // Deleting a user ends all of their sessions
+                entity.HasOne(t => t.User)
+                      .WithMany()
+                      .HasForeignKey(t => t.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<Reservation>(entity =>

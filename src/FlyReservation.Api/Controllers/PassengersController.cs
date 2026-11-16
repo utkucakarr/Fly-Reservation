@@ -1,5 +1,7 @@
+﻿using FlyReservation.Api.Auth;
 using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FlyReservation.Api.Controllers
@@ -17,7 +19,12 @@ namespace FlyReservation.Api.Controllers
             _passengerService = passengerService;
         }
 
+        // Every passenger's name and email: not for the public
         [HttpGet]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<List<PassengerResponse>>> GetAll()
         {
             return Ok(await _passengerService.GetAllAsync());
@@ -62,6 +69,9 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // the passenger still has reservations

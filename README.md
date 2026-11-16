@@ -35,6 +35,8 @@ The most interesting finding: when 50 people try to book the **last seat** of a 
 - **Unpaid reservations expire:** a new reservation is `PendingPayment` and holds its seat for 15 minutes. Paying makes it `Confirmed`; if nobody pays, a background service marks it `Expired` and puts the seat back on sale. An expired reservation can no longer be paid, so no money is taken for a seat that may already be sold.
 - **Price agreed at booking:** the reservation stores the flight's price at the moment of booking, and paying charges that price, even if the flight's price changes in between.
 - **Safe concurrent edits:** `GET` returns a flight's or passenger's version in an `ETag` header and `PUT` must send it back in `If-Match`. If someone else saved in between, the update gets `412` instead of silently overwriting their change; without `If-Match` it gets `428`. Bookings do not change the version, so editing a busy flight still works.
+- **Admin-only changes:** creating, changing and deleting flights, deleting passengers and listing all passengers or reservations need an admin's access token (JWT, 15 minutes). A missing or invalid token gets `401`, a valid token without the Admin role gets `403`. Customers book, pay and cancel without an account.
+- **Sessions that can be ended:** the long-lived refresh token lives in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie and is stored only as a hash. Every refresh replaces it; a token that is used twice ends every session of that login.
 - **Two lines of defence:** request validation in the API (400) plus database rules: unique indexes, foreign keys with `RESTRICT` (no silent cascade deletes), and check constraints `0 <= AvailableSeats <= TotalSeats` and `Price > 0`.
 - **Consistent errors:** every error is a ProblemDetails response with a `traceId`. No stack traces or internal details reach the client.
 - **Searchable logs:** the `traceId` in an error response finds every log line of that request in Seq. Expected 409s are logged as warnings, not errors.
@@ -83,6 +85,8 @@ tests/
 | Situation | Status |
 |---|---|
 | Invalid request body (e.g. -50 seats, same origin and destination) | `400` with field errors |
+| Admin endpoint without a token, or with an invalid or expired one; wrong email or password; unknown, expired or already used refresh token | `401` |
+| Admin endpoint with a valid token that is not an admin's | `403` |
 | Flight / passenger / reservation not found | `404` |
 | Flight has no available seats | `409` |
 | Passenger already has a reservation on this flight | `409` |
@@ -112,19 +116,24 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 | `GET` | `/api/flights?page=1&pageSize=20` | List flights, paged (`pageSize` 1–100, ordered by id) |
 | `GET` | `/api/flights/search?origin=IST&destination=AYT&date=2026-12-15` | Flights on a route on one day, ordered by departure time |
 | `GET` | `/api/flights/{id}` | Get a flight; its version is in the `ETag` header |
-| `POST` | `/api/flights` | Create a flight |
-| `PUT` | `/api/flights/{id}` | Update a flight's number, route, times and price (the seat count is fixed at creation). Requires `If-Match` with the `ETag` from `GET` |
-| `DELETE` | `/api/flights/{id}` | Delete a flight (409 if it has reservations) |
-| `GET` | `/api/passengers` | List passengers |
+| `POST` | `/api/flights` | Create a flight. **Admin** |
+| `PUT` | `/api/flights/{id}` | Update a flight's number, route, times and price (the seat count is fixed at creation). Requires `If-Match` with the `ETag` from `GET`. **Admin** |
+| `DELETE` | `/api/flights/{id}` | Delete a flight (409 if it has reservations). **Admin** |
+| `GET` | `/api/passengers` | List passengers. **Admin** |
 | `GET` | `/api/passengers/{id}` | Get a passenger; its version is in the `ETag` header |
 | `POST` | `/api/passengers` | Create a passenger (email is unique) |
 | `PUT` | `/api/passengers/{id}` | Update a passenger. Requires `If-Match` with the `ETag` from `GET` |
-| `DELETE` | `/api/passengers/{id}` | Delete a passenger (409 if they have reservations) |
-| `GET` | `/api/reservations` | List reservations |
+| `DELETE` | `/api/passengers/{id}` | Delete a passenger (409 if they have reservations). **Admin** |
+| `GET` | `/api/reservations` | List reservations. **Admin** |
 | `GET` | `/api/reservations/{id}` | Get a reservation |
 | `POST` | `/api/reservations` | Book a seat (`{ "flightId": 1, "passengerId": 1 }`). Optional `Idempotency-Key` header makes retries safe |
 | `DELETE` | `/api/reservations/{id}` | Cancel an unpaid reservation and release the seat (`409` once it is paid or expired) |
 | `POST` | `/api/reservations/{id}/payment` | Pay for a pending reservation through the payment provider (`409` if it expired, `503` if the provider is unavailable). Paying again returns the same result without a new charge |
+| `POST` | `/api/auth/login` | Email and password in; an access token in the body and a refresh token in an `HttpOnly` cookie out |
+| `POST` | `/api/auth/refresh` | A new access token and a new refresh token cookie. Needs the cookie and an `X-Requested-With` header |
+| `POST` | `/api/auth/logout` | Revokes the refresh token and clears the cookie. Needs an `X-Requested-With` header |
+
+**Admin** endpoints need `Authorization: Bearer <access token>`.
 
 To try the API in the browser, run it and open **`http://localhost:5177/scalar`** (Development only): every endpoint with its request body and possible status codes, and a button to send the request. Ready-to-send requests are also in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
 
@@ -143,14 +152,19 @@ dotnet user-secrets set "ConnectionStrings:FlyReservationDb" \
   "Host=localhost;Port=5434;Database=flyreservation;Username=flyuser;Password=flypass" \
   --project src/FlyReservation.Api
 
-# 3. Create the database schema
+# 3. Store the key that signs access tokens, and the first admin (created when the API starts)
+dotnet user-secrets set "Jwt:Key" "<at least 32 random characters>" --project src/FlyReservation.Api
+dotnet user-secrets set "AdminUser:Email" "admin@flyreservation.local" --project src/FlyReservation.Api
+dotnet user-secrets set "AdminUser:Password" "<a strong password>" --project src/FlyReservation.Api
+
+# 4. Create the database schema
 dotnet tool install --global dotnet-ef   # once
 dotnet ef database update --project src/FlyReservation.Api
 
-# 4. Run the API → http://localhost:5177
+# 5. Run the API → http://localhost:5177
 dotnet run --project src/FlyReservation.Api
 
-# 5. Optional, only for the payment endpoint: run the fake payment provider → http://localhost:5288
+# 6. Optional, only for the payment endpoint: run the fake payment provider → http://localhost:5288
 dotnet run --project src/FlyReservation.PaymentMock
 ```
 
@@ -175,7 +189,7 @@ dotnet test   # Docker must be running: integration tests start their own Postgr
 | Project | Count | What it covers |
 |---|---|---|
 | `FlyReservation.UnitTests` | 32 tests | Seat rules on the `Flight` entity; validation of flight, reservation, paging and search requests (including the page size limits) |
-| `FlyReservation.IntegrationTests` | 47 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the price charged after a price change, `412`/`428` for stale or missing `If-Match`, the status codes in the OpenAPI document |
+| `FlyReservation.IntegrationTests` | 73 tests | The real API in memory (`WebApplicationFactory`) against throwaway PostgreSQL 17 and Redis 7.4 containers (Testcontainers): 400/404/409/422 responses, seat counts, concurrent bookings, idempotent retries, paging, search by route and day, cache invalidation, payment retries and `503`, reservation expiry and its races with payments, the price charged after a price change, `412`/`428` for stale or missing `If-Match`, `401`/`403` on admin endpoints, a tampered token, refresh token rotation, reuse and 20 parallel refreshes, the status codes in the OpenAPI document |
 
 <img src="docs/images/13-unit-tests-green.png" alt="16 unit tests passing in Test Explorer" width="280">
 
@@ -648,6 +662,82 @@ EF Core scaffolded the switch as "rename the `xmin` column to `Version`". `xmin`
 
 The migration was rewritten by hand to add a new column (`ALTER TABLE "Flights" ADD "Version" integer NOT NULL DEFAULT 0`) and leave `xmin` alone. A scaffolded migration is EF Core's guess; reading it, and the SQL it produces, is part of the job.
 
+## Who may change flights
+
+### The problem
+
+The API never asked who was calling. A test that deletes a flight without logging in proved it:
+
+```
+Expected: Unauthorized
+Actual:   NoContent
+```
+
+<!-- 📸 docs/images/23-before-anyone-deletes-flight.png -->
+
+Anyone who knew the address could delete every flight, and `GET /api/passengers` handed out every passenger's email.
+
+### The fix: an admin login and a signed token
+
+| Who | May |
+|---|---|
+| Admin (logged in) | Create, change and delete flights; delete passengers; list all passengers and all reservations |
+| Everyone | Search and read flights; create, read and update a passenger; book, read, pay for and cancel a reservation |
+
+`POST /api/auth/login` checks the password and returns a JWT access token that lives 15 minutes. Admin endpoints carry `[Authorize(Roles = "Admin")]`: no token or a bad one gets `401`, a valid token without the role gets `403`. Checking a token is only a signature check, so admin requests do not look the user up in the database.
+
+- **Passwords** are stored as salted PBKDF2-HMAC-SHA512 hashes (`PasswordHasher`, 210,000 iterations). They are hashed, not encrypted: the API never needs to read one back.
+- **One login error** for a wrong password and an unknown email, so the response does not reveal which emails have an account.
+- **The signing key** is a user secret, never in the repository. The API refuses to start without one of at least 32 bytes.
+- A token whose payload was changed to `"role": "Admin"` is rejected: the signature no longer matches (`DeleteFlight_WithTamperedToken_Returns401`).
+
+| Login → access token | Wrong password → `401` |
+|---|---|
+| ![200 with an access token and its expiry](docs/images/23-login-token.png) | ![401: Email or password is incorrect](docs/images/23-login-wrong-password-401.png) |
+
+Adding only `[Authorize]` did not give `401` but `500` (`No authenticationScheme was specified`): authorization needs an authentication scheme that says how to read the caller's identity.
+
+<!-- 📸 docs/images/23-after-401-403.png -->
+
+Customers have no accounts, so the test client stays anonymous and only the test helpers that act as an admin add the token. The existing booking tests therefore also prove that the customer flow needs no login.
+
+### New problem: an access token cannot be taken back
+
+A JWT is valid until it expires; the server keeps no list of them. That is why it is short-lived, and why a second, long-lived **refresh token** buys new access tokens without the password. The refresh token is 256 random bits and, unlike the access token, it is stored (as a SHA-256 hash), so it can be revoked: logout does exactly that.
+
+Every refresh replaces the refresh token (**rotation**), so each one works once. If a used token comes back, two parties hold it, one of them stole it, and the server cannot tell which: every token from that login is revoked.
+
+### New problem: one token, 20 parallel refreshes
+
+The first version read the token, checked that it was unused, then marked it used. The same check-then-act race as overbooking:
+
+```
+Expected: 1
+Actual:   16
+```
+
+<!-- 📸 docs/images/23-before-refresh-race.png -->
+
+16 of 20 parallel requests with the same token got new tokens. The fix is the one from the seat counter: one conditional `UPDATE` that marks the token used only if nobody has yet, and continues only when it changed a row.
+
+```csharp
+var consumed = await _context.RefreshTokens
+    .Where(t => t.Id == stored.Id && t.RevokedAt == null)
+    .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAt, DateTime.UtcNow));
+```
+
+### Browser clients: XSS and CSRF
+
+There is no frontend yet, but the tokens are handed out the way a browser client needs them:
+
+| Threat | Defence |
+|---|---|
+| XSS: a script on the page steals the token | The refresh token is in an `HttpOnly` cookie that scripts cannot read. Only the 15-minute access token is in the response body, to be kept in memory |
+| CSRF: another site makes the browser send the cookie | `SameSite=Strict`, and the cookie's path is `/api/auth`, so only refresh and logout ever receive it. Both also require an `X-Requested-With` header, which a form on another site cannot send. Admin actions use the `Authorization` header, not the cookie |
+| Token sent over plain HTTP | `Secure` cookie |
+| A response run as HTML or script | `X-Content-Type-Options: nosniff` on every response |
+| Another origin calling the API from a browser | CORS is not enabled |
+
 ## Other problems solved along the way
 
 | Problem | How it showed up | Fix |
@@ -667,7 +757,11 @@ These are known and deliberately left for later steps:
 - `DELETE` does not check `If-Match`: a flight or passenger can be deleted while someone is editing it.
 - Passenger responses leave out the passport number on purpose, but `PUT` replaces the whole passenger and requires it, so an edit form has to ask for it again.
 - Paging uses `OFFSET`, which gets slower on deep pages (the database still reads and skips the earlier rows). Keyset pagination (`WHERE Id > @lastId`) would fix this but does not allow jumping to page N.
-- Idempotency keys are stored forever and are not tied to a user yet (needs authentication).
+- Idempotency keys are stored forever and are not tied to a user yet.
+- Customers have no accounts, so the API cannot ask "is this yours?": anyone who knows the id can update another passenger's record or cancel another passenger's unpaid reservation. Customer accounts with an ownership check are planned.
+- A deleted or demoted admin's access token keeps working until it expires (up to 15 minutes); only the refresh token is revoked.
+- Two refreshes sent at the same moment by the same client (two browser tabs) count as reuse and end the session.
+- Login has no attempt limit yet (rate limiting is a later step). Used and expired refresh tokens are never deleted from the table.
 - If Redis goes down, the API keeps working, but every cache miss first waits for the Redis client's timeout (measured 5.9–13.5 s) before it goes to the database. The resilience handler only covers `HttpClient`, not Redis.
 - After an invalidation, another API instance can serve stale search results from its own memory (L1) for up to 1 minute.
 - A payment that ended in `503` may in fact have succeeded at the provider. If the user does not try again, the reservation expires although the money may have been taken. The fix is to ask the provider for the payment's status before expiring it, or to reconcile with the provider's records.
@@ -695,5 +789,6 @@ These are known and deliberately left for later steps:
 - [x] Safe concurrent edits (optimistic concurrency, ETag / If-Match)
 - [x] CI with GitHub Actions (build + unit and integration tests on every push)
 - [ ] Outbox pattern
-- [ ] Authentication / authorization, rate limiting
+- [x] Authentication and authorization (JWT access token, rotating refresh token in an HttpOnly cookie, Admin role)
+- [ ] Customer accounts (ownership checks), rate limiting
 - [ ] Observability (tracing), Dockerfile for the API

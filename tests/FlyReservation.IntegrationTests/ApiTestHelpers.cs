@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FlyReservation.Api.Dtos;
 
@@ -6,6 +7,40 @@ namespace FlyReservation.IntegrationTests
     // Creates test data through the API itself, with unique values so tests never collide
     public static class ApiTestHelpers
     {
+        // Seeded by FlyReservationApiFactory
+        public const string AdminEmail = "admin@test.com";
+        public const string AdminPassword = "Test-Admin-Password-1";
+
+        private static string? _adminToken;
+
+        // Logs in through the real endpoint, once. Every test host uses the same signing key, so one token works on all of them
+        public static async Task<string> GetAdminTokenAsync(this HttpClient client)
+        {
+            if (_adminToken is not null)
+                return _adminToken;
+
+            var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AdminEmail, AdminPassword));
+            response.EnsureSuccessStatusCode();
+
+            var login = (await response.Content.ReadFromJsonAsync<LoginResponse>())!;
+            return _adminToken = login.AccessToken;
+        }
+
+        // Sends one request as the admin. The client itself stays anonymous, like a customer's browser
+        public static async Task<HttpResponseMessage> SendAsAdminAsync(this HttpClient client, HttpRequestMessage message)
+        {
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await client.GetAdminTokenAsync());
+            return await client.SendAsync(message);
+        }
+
+        public static Task<HttpResponseMessage> PostFlightAsync(this HttpClient client, CreateFlightRequest request)
+        {
+            return client.SendAsAdminAsync(new HttpRequestMessage(HttpMethod.Post, "/api/flights")
+            {
+                Content = JsonContent.Create(request)
+            });
+        }
+
         public static async Task<FlightResponse> CreateFlightAsync(this HttpClient client, int totalSeats)
         {
             var departure = DateTime.UtcNow.AddDays(Random.Shared.Next(10, 300)).AddMinutes(Random.Shared.Next(0, 1440));
@@ -19,7 +54,7 @@ namespace FlyReservation.IntegrationTests
                 TotalSeats: totalSeats,
                 Price: 900);
 
-            var response = await client.PostAsJsonAsync("/api/flights", request);
+            var response = await client.PostFlightAsync(request);
             response.EnsureSuccessStatusCode();
 
             return (await response.Content.ReadFromJsonAsync<FlightResponse>())!;
@@ -82,13 +117,13 @@ namespace FlyReservation.IntegrationTests
             => client.GetForEditAsync<FlightResponse>($"/api/flights/{id}");
 
         public static Task<HttpResponseMessage> PutFlightAsync(this HttpClient client, int id, UpdateFlightRequest request, string? eTag)
-            => client.PutWithIfMatchAsync($"/api/flights/{id}", request, eTag);
+            => client.PutWithIfMatchAsync($"/api/flights/{id}", request, eTag, asAdmin: true);
 
         public static Task<(PassengerResponse Passenger, string ETag)> GetPassengerForEditAsync(this HttpClient client, int id)
             => client.GetForEditAsync<PassengerResponse>($"/api/passengers/{id}");
 
         public static Task<HttpResponseMessage> PutPassengerAsync(this HttpClient client, int id, UpdatePassengerRequest request, string? eTag)
-            => client.PutWithIfMatchAsync($"/api/passengers/{id}", request, eTag);
+            => client.PutWithIfMatchAsync($"/api/passengers/{id}", request, eTag, asAdmin: false);
 
         // What an admin's edit form loads: the record and the version (ETag) it was read at
         private static async Task<(T Record, string ETag)> GetForEditAsync<T>(this HttpClient client, string url)
@@ -101,7 +136,7 @@ namespace FlyReservation.IntegrationTests
         }
 
         // PUT with If-Match: "update only if the record is still at this version". Null sends no If-Match
-        private static async Task<HttpResponseMessage> PutWithIfMatchAsync<T>(this HttpClient client, string url, T request, string? eTag)
+        private static async Task<HttpResponseMessage> PutWithIfMatchAsync<T>(this HttpClient client, string url, T request, string? eTag, bool asAdmin)
         {
             var message = new HttpRequestMessage(HttpMethod.Put, url)
             {
@@ -110,7 +145,7 @@ namespace FlyReservation.IntegrationTests
             if (eTag is not null)
                 message.Headers.TryAddWithoutValidation("If-Match", eTag);
 
-            return await client.SendAsync(message);
+            return asAdmin ? await client.SendAsAdminAsync(message) : await client.SendAsync(message);
         }
 
         // What an admin's edit form sends back: every field as it was read, before any change

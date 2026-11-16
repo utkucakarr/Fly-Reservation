@@ -1,13 +1,19 @@
+using System.Text;
 using FluentValidation;
+using FlyReservation.Api.Auth;
 using FlyReservation.Api.BackgroundServices;
 using FlyReservation.Api.Data;
+using FlyReservation.Api.Entities;
 using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
 using FlyReservation.Api.Payments;
 using FlyReservation.Api.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -77,6 +83,39 @@ builder.Services.AddHttpClient<IPaymentClient, PaymentClient>(client =>
         options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
     });
 
+// Authentication: who is calling? Reads "Authorization: Bearer <token>" and checks the token's signature and lifetime.
+// Nothing is looked up in the database: the signature proves that this API made the token and nobody changed it
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
+if (Encoding.UTF8.GetByteCount(jwtOptions.Key) < 32)
+    throw new InvalidOperationException(
+        "Jwt:Key is missing or shorter than 32 bytes. Set it with: dotnet user-secrets set \"Jwt:Key\" \"<long random text>\"");
+
+builder.Services.Configure<JwtOptions>(jwtSection);
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        // Keep the claim names as they are in the token ("sub", "role") instead of the long XML-era names
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+            ClockSkew = TimeSpan.FromSeconds(30),   // default is 5 minutes: an expired token would keep working that long
+            NameClaimType = "sub",
+            RoleClaimType = "role"                  // [Authorize(Roles = ...)] reads this claim
+        };
+    });
+// Authorization: is this caller allowed to do this? [Authorize(Roles = ...)] on the admin actions
+builder.Services.AddAuthorization();
+
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<JwtTokenGenerator>();
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+// PBKDF2-HMAC-SHA512. 210,000 is OWASP's current number for it; the default is 100,000
+builder.Services.Configure<PasswordHasherOptions>(options => options.IterationCount = 210_000);
 
 // Catch unhandled exceptions in one place and return ProblemDetails responses
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -103,8 +142,24 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Tells the browser not to guess the content type: a JSON response must never be run as HTML or script
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    await next();
+});
+
+// Order matters: first find out who the caller is (401 if a token is needed and missing or invalid),
+// then check what they may do (403 if the token is fine but the role is not)
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// The first admin, from configuration (user secrets). Skipped when not configured or when the user already exists
+var adminEmail = app.Configuration["AdminUser:Email"];
+var adminPassword = app.Configuration["AdminUser:Password"];
+if (!string.IsNullOrEmpty(adminEmail) && !string.IsNullOrEmpty(adminPassword))
+    await AdminSeeder.SeedAsync(app.Services, adminEmail, adminPassword);
 
 app.Run();
