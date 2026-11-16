@@ -1,5 +1,7 @@
-﻿using FlyReservation.Api.Dtos;
+﻿using FlyReservation.Api.Auth;
+using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FlyReservation.Api.Controllers
@@ -46,6 +48,9 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // same flight number and departure time
@@ -56,6 +61,9 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
@@ -72,6 +80,9 @@ namespace FlyReservation.Api.Controllers
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
         [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]     // the flight still has reservations

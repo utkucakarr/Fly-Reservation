@@ -1,5 +1,7 @@
-﻿using FlyReservation.Api.Dtos;
+﻿using FlyReservation.Api.Auth;
+using FlyReservation.Api.Dtos;
 using FlyReservation.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
 
@@ -18,7 +20,12 @@ namespace FlyReservation.Api.Controllers
             _reservationService = reservationService;
         }
 
+        // Every reservation of every passenger: not for the public
         [HttpGet]
+        [Authorize(Roles = Roles.Admin)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]   // no token, or an invalid or expired one
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]      // a valid token, but not an admin
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<List<ReservationResponse>>> GetAll()
         {
             return Ok(await _reservationService.GetAllAsync());

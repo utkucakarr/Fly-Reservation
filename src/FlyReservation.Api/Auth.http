@@ -1,0 +1,46 @@
+@baseUrl = https://localhost:7179
+@adminEmail = utkucakar@hotmail.com
+# Type your AdminUser:Password (user secrets) here while testing. Do not commit it
+@adminPassword = CHANGE_ME
+
+### 1) Login: access token in the body, refresh token in an HttpOnly cookie (see the Set-Cookie response header)
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### 2) Wrong password -> 401, same message as an unknown email
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "wrong-password"
+}
+
+### 3) Admin endpoint without a token -> 401
+GET {{baseUrl}}/api/passengers
+
+### 4) Admin endpoint with the token -> 200
+GET {{baseUrl}}/api/passengers
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 5) Refresh: new access token, new refresh token cookie (rotation).
+### Paste the refreshToken value from the last Set-Cookie header (the part between "refreshToken=" and the first ";")
+### Sending the same value a second time -> 401, and the newer token stops working too (reuse detection)
+POST {{baseUrl}}/api/auth/refresh
+X-Requested-With: XMLHttpRequest
+Cookie: refreshToken=PASTE_HERE
+
+### 6) Refresh without the X-Requested-With header -> 400 (CSRF, second layer)
+POST {{baseUrl}}/api/auth/refresh
+Cookie: refreshToken=PASTE_HERE
+
+### 7) Logout: the refresh token stops working, the cookie is cleared
+POST {{baseUrl}}/api/auth/logout
+X-Requested-With: XMLHttpRequest
+Cookie: refreshToken=PASTE_HERE

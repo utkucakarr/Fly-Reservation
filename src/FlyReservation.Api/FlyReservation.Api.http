@@ -1,4 +1,18 @@
 @baseUrl = https://localhost:7179
+@adminEmail = utkucakar@hotmail.com
+# Type your AdminUser:Password (user secrets) here while testing. Do not commit it
+@adminPassword = CHANGE_ME
+
+### AUTH) Login as admin. Send this first: the admin requests below read the token from its response
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
 
 ### 7) Search: route + day
 GET {{baseUrl}}/api/flights/search?origin=IST&destination=AYT&date=2026-12-20
@@ -13,6 +27,7 @@ GET {{baseUrl}}/api/flights?pageSize=1000
 
 ### 2) Add new fly
 POST {{baseUrl}}/api/flights
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -27,6 +42,7 @@ Content-Type: application/json
 
 ### 3) Add second fly
 POST {{baseUrl}}/api/flights
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -49,6 +65,7 @@ GET {{baseUrl}}/api/flights/15
 ### 5) Update (price and clock changed). Send 5a first: If-Match carries its ETag
 # Without If-Match → 428. With an old ETag (someone saved in between) → 412
 PUT {{baseUrl}}/api/flights/15
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 If-Match: {{flightToEdit.response.headers.ETag}}
 
@@ -63,12 +80,14 @@ If-Match: {{flightToEdit.response.headers.ETag}}
 
 ### 6) Delete
 DELETE {{baseUrl}}/api/flights/9
+Authorization: Bearer {{login.response.body.$.accessToken}}
 
 ### 7) Olmayan uçuş
 GET {{baseUrl}}/api/flights/999
 
 ### 8) Saçma veri (Deney 4)
 POST {{baseUrl}}/api/flights
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -83,6 +102,7 @@ Content-Type: application/json
 
 ### 9) Deney C1: try to set id and availableSeats from client (DTO should ignore them)
 POST {{baseUrl}}/api/flights
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
