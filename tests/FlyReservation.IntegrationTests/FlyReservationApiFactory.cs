@@ -26,6 +26,9 @@ namespace FlyReservation.IntegrationTests
 
             // The real key is a user secret and does not exist on the CI machine. Any 32+ byte text works for tests
             builder.UseSetting("Jwt:Key", "integration-tests-signing-key-0123456789");
+
+            builder.UseSetting("AdminUser:Email", "");
+            builder.UseSetting("AdminUser:Password", "");
         }
 
         public async Task InitializeAsync()

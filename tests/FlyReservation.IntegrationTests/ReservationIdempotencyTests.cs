@@ -7,7 +7,7 @@ using System.Text;
 
 namespace FlyReservation.IntegrationTests
 {
-    public class ReservationIdempotencyTests : IClassFixture<FlyReservationApiFactory>
+    public class ReservationIdempotencyTests : IClassFixture<FlyReservationApiFactory>, IAsyncLifetime
     {
         private readonly HttpClient _client;
 
@@ -15,6 +15,11 @@ namespace FlyReservation.IntegrationTests
         {
             _client = factory.CreateClient();
         }
+
+        // Every test runs as a new, logged-in customer: their passengers and bookings belong to that account
+        public async Task InitializeAsync() => await _client.LogInAsNewCustomerAsync();
+
+        public Task DisposeAsync() => Task.CompletedTask;
 
         // F1: the response was lost, the client retries with the same key
         [Fact]

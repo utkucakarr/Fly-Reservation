@@ -2,6 +2,9 @@
 @adminEmail = utkucakar@hotmail.com
 # Type your AdminUser:Password (user secrets) here while testing. Do not commit it
 @adminPassword = CHANGE_ME
+# A throwaway customer for development, not a secret. Register it once with CUSTOMER-1
+@customerEmail = alice@test.com
+@customerPassword = alice-password-123
 
 ### AUTH) Login as admin. Send this first: the admin requests below read the token from its response
 # @name login
@@ -14,13 +17,37 @@ Content-Type: application/json
 }
 
 
-### 1) List all passengers
+### CUSTOMER-1) Register the customer once (409 from the second time on)
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{customerEmail}}",
+  "password": "{{customerPassword}}"
+}
+
+### CUSTOMER-2) Login as the customer. The customer requests below read the token from its response
+# @name customer
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{customerEmail}}",
+  "password": "{{customerPassword}}"
+}
+
+### 1) List all passengers (admin)
 GET {{baseUrl}}/api/passengers
 Authorization: Bearer {{login.response.body.$.accessToken}}
 Accept: application/json
 
-### 2) Add passenger (Deney D1: send this twice)
+### 1b) My passengers: use these ids below. Passengers created before Adım 23c belong to nobody → 404 for a customer
+GET {{baseUrl}}/api/passengers/mine
+Authorization: Bearer {{customer.response.body.$.accessToken}}
+
+### 2) Add passenger to my account (Deney D1: send this twice)
 POST {{baseUrl}}/api/passengers
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -33,10 +60,12 @@ Content-Type: application/json
 ### 3) Get passenger by id: the response's ETag header is its version
 # @name passengerToEdit
 GET {{baseUrl}}/api/passengers/1
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 
 ### 4) Update passenger. Send 3 first: If-Match carries its ETag
 # Without If-Match → 428. With an old ETag (someone saved in between) → 412
 PUT {{baseUrl}}/api/passengers/1
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 If-Match: {{passengerToEdit.response.headers.ETag}}
 
@@ -53,9 +82,11 @@ Authorization: Bearer {{login.response.body.$.accessToken}}
 
 ### 6) Non-existent passenger
 GET {{baseUrl}}/api/passengers/999
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 
 ### 7) Adım 8: invalid passenger (expect 400 with errors)
 POST {{baseUrl}}/api/passengers
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 
 {

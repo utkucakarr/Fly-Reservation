@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 
 namespace FlyReservation.IntegrationTests
 {
-    public class ReservationConcurrencyTests : IClassFixture<FlyReservationApiFactory>
+    public class ReservationConcurrencyTests : IClassFixture<FlyReservationApiFactory>, IAsyncLifetime
     {
         private readonly HttpClient _client;
 
@@ -12,6 +12,11 @@ namespace FlyReservation.IntegrationTests
         {
             _client = factory.CreateClient();
         }
+
+        // Every test runs as a new, logged-in customer: their passengers and bookings belong to that account
+        public async Task InitializeAsync() => await _client.LogInAsNewCustomerAsync();
+
+        public Task DisposeAsync() => Task.CompletedTask;
 
         [Fact]
         public async Task CreateReservation_WhenManyBuyersRaceForLastSeat_OnlyOneSucceeds()

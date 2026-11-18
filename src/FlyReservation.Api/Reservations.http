@@ -2,6 +2,9 @@
 @adminEmail = admin@flyreservation.local
 # Type your AdminUser:Password (user secrets) here while testing. Do not commit it
 @adminPassword = CHANGE_ME
+# A throwaway customer for development, not a secret. Register it once with CUSTOMER-1
+@customerEmail = alice@test.com
+@customerPassword = alice-password-123
 
 ### AUTH) Login as admin. Send this first: the admin requests below read the token from its response
 # @name login
@@ -14,12 +17,36 @@ Content-Type: application/json
 }
 
 
-### 1) List all reservations
+### CUSTOMER-1) Register the customer once (409 from the second time on)
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{customerEmail}}",
+  "password": "{{customerPassword}}"
+}
+
+### CUSTOMER-2) Login as the customer. The customer requests below read the token from its response
+# @name customer
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{customerEmail}}",
+  "password": "{{customerPassword}}"
+}
+
+### 1) List all reservations (admin)
 GET {{baseUrl}}/api/reservations
 Authorization: Bearer {{login.response.body.$.accessToken}}
 
-### 2) Create reservation
+### 1b) My reservations, newest first
+GET {{baseUrl}}/api/reservations/mine
+Authorization: Bearer {{customer.response.body.$.accessToken}}
+
+### 2) Create reservation. passengerId must be one of mine (Passengers.http 1b), otherwise 404
 POST {{baseUrl}}/api/reservations
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -29,6 +56,7 @@ Content-Type: application/json
 
 ### 7) Deney 17-E: same key twice → same PNR (click Send twice)
 POST {{baseUrl}}/api/reservations
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: deney-17-1
 
@@ -39,12 +67,15 @@ Idempotency-Key: deney-17-1
 
 ### 3) Get reservation by id
 GET {{baseUrl}}/api/reservations/2
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 
 ### 4) Cancel reservation
 DELETE {{baseUrl}}/api/reservations/6
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 
 ### 5) Deney B2: try to set server-side fields from client (DTO should ignore them)
 POST {{baseUrl}}/api/reservations
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -57,6 +88,7 @@ Content-Type: application/json
 
 ### 6) Deney B3: reservation for a non-existent flight
 POST {{baseUrl}}/api/reservations
+Authorization: Bearer {{customer.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -66,3 +98,4 @@ Content-Type: application/json
 
 ### Pay a reservation
 POST {{baseUrl}}/api/reservations/1/payment
+Authorization: Bearer {{customer.response.body.$.accessToken}}

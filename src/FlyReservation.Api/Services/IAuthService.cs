@@ -8,5 +8,6 @@ namespace FlyReservation.Api.Services
         Task<AuthTokens> LoginAsync(LoginRequest request);
         Task<AuthTokens> RefreshAsync(string? refreshToken);
         Task LogoutAsync(string? refreshToken);
+        Task<AuthTokens> RegisterAsync(RegisterRequest request);
     }
 }

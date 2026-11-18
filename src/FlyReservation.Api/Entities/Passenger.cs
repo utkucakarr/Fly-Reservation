@@ -13,6 +13,10 @@
         // keeps working if something else starts writing passenger rows later
         public int Version { get; set; }
 
+        // The account that created this passenger
+        public int? UserId { get; set; }
+        public User? User { get; set; }
+
         public List<Reservation> Reservations { get; set; } = new();
     }
 }

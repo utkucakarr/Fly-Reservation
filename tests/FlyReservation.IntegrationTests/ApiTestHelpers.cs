@@ -10,6 +10,7 @@ namespace FlyReservation.IntegrationTests
         // Seeded by FlyReservationApiFactory
         public const string AdminEmail = "admin@test.com";
         public const string AdminPassword = "Test-Admin-Password-1";
+        public const string CustomerPassword = "Test-Customer-Password-1";
 
         private static string? _adminToken;
 
@@ -31,6 +32,36 @@ namespace FlyReservation.IntegrationTests
         {
             message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await client.GetAdminTokenAsync());
             return await client.SendAsync(message);
+        }
+
+        // A new customer account through the real endpoint. The client sends that customer's token with every
+        // request, like the customer's own app. (The admin token is added per request instead: see SendAsAdminAsync)
+        public static Task<HttpClient> CreateCustomerClientAsync(this FlyReservationApiFactory factory)
+        {
+            return factory.CreateClient().LogInAsNewCustomerAsync();
+        }
+
+        // The same for a client that already exists, e.g. one from WithWebHostBuilder with a fake payment provider
+        public static async Task<HttpClient> LogInAsNewCustomerAsync(this HttpClient client)
+        {
+            var response = await client.PostAsJsonAsync("/api/auth/register",
+                new RegisterRequest($"{Guid.NewGuid()}@test.com", CustomerPassword));
+            response.EnsureSuccessStatusCode();
+
+            var login = (await response.Content.ReadFromJsonAsync<LoginResponse>())!;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+            return client;
+        }
+
+        // A new passenger of this client's account, booked on the flight
+        public static async Task<ReservationResponse> CreateReservationAsync(this HttpClient client, int flightId)
+        {
+            var passenger = await client.CreatePassengerAsync();
+            var response = await client.PostReservationAsync(
+                new CreateReservationRequest(flightId, passenger.Id), Guid.NewGuid().ToString());
+            response.EnsureSuccessStatusCode();
+
+            return (await response.Content.ReadFromJsonAsync<ReservationResponse>())!;
         }
 
         public static Task<HttpResponseMessage> PostFlightAsync(this HttpClient client, CreateFlightRequest request)

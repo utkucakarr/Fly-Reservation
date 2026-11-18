@@ -14,9 +14,9 @@ namespace FlyReservation.IntegrationTests
         }
 
         [Theory]
-        [InlineData("/api/Reservations", "post", new[] { "201", "400", "404", "409", "422" })]
-        [InlineData("/api/Reservations/{id}", "delete", new[] { "204", "404", "409" })]
-        [InlineData("/api/Reservations/{id}/payment", "post", new[] { "200", "404", "409", "503" })]
+        [InlineData("/api/Reservations", "post", new[] { "201", "400", "401", "404", "409", "422" })]
+        [InlineData("/api/Reservations/{id}", "delete", new[] { "204", "401", "404", "409" })]
+        [InlineData("/api/Reservations/{id}/payment", "post", new[] { "200", "401", "404", "409", "503" })]
         [InlineData("/api/Auth/login", "post", new[] { "200", "400", "401" })]
         [InlineData("/api/Auth/refresh", "post", new[] { "200", "400", "401" })]
         [InlineData("/api/Auth/logout", "post", new[] { "204", "400" })]
@@ -26,7 +26,10 @@ namespace FlyReservation.IntegrationTests
         [InlineData("/api/Flights", "post", new[] { "201", "400", "401", "403", "409" })]
         [InlineData("/api/Flights/{id}", "get", new[] { "200", "404" })]
         [InlineData("/api/Flights/{id}", "put", new[] { "204", "400", "401", "403", "404", "409", "412", "428" })]
-        [InlineData("/api/Passengers/{id}", "put", new[] { "204", "400", "404", "409", "412", "428" })]
+        [InlineData("/api/Passengers/{id}", "put", new[] { "204", "400", "401", "404", "409", "412", "428" })]
+        [InlineData("/api/Auth/register", "post", new[] { "200", "400", "409" })]
+        [InlineData("/api/Passengers/mine", "get", new[] { "200", "401" })]
+        [InlineData("/api/Reservations/mine", "get", new[] { "200", "401" })]
         public async Task OpenApi_ListsTheStatusCodesTheEndpointReturns(string path, string method, string[] expected)
         {
             using var document = JsonDocument.Parse(await _client.GetStringAsync("/openapi/v1.json"));
