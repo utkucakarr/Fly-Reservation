@@ -17,6 +17,17 @@ namespace FlyReservation.Api.Controllers
             _authService = authService;
         }
 
+        // A new customer account, logged in right away: the same answer as login.
+        // 200, not 201: there is no address to read the new account from
+        [HttpPost("register")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]       // the email already has an account
+        public async Task<ActionResult<LoginResponse>> Register(RegisterRequest request)
+        {
+            return Respond(await _authService.RegisterAsync(request));
+        }
+
         // Email + password in. Out: a short-lived access token in the body (sent back as "Authorization: Bearer <token>")
         // and a long-lived refresh token in an HttpOnly cookie
         [HttpPost("login")]

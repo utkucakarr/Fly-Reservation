@@ -115,6 +115,24 @@ namespace FlyReservation.Api.Services
             return new AuthTokens(accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt);
         }
 
+        public async Task<AuthTokens> RegisterAsync(RegisterRequest request)
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
+
+            if (await _context.Users.AnyAsync(u => u.Email == email))
+                throw new ConflictException("An account with this email already exists.");
+
+            // The role is set here, never taken from the request
+            var user = new User { Email = email, Role = Roles.Customer };
+            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            // Logged in right away: a new token family, like a login
+            return await IssueTokensAsync(user, familyId: Guid.NewGuid());
+        }
+
         private Task<int> RevokeFamilyAsync(Guid familyId)
         {
             return _context.RefreshTokens

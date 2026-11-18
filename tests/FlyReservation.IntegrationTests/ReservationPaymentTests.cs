@@ -20,7 +20,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_WhenProviderFailsOnceThenSucceeds_Returns200()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var reservationId = await CreateReservationAsync(client);
 
             var response = await client.PostAsync($"/api/reservations/{reservationId}/payment", null);
@@ -33,7 +33,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_WhenProviderKeepsFailing_Returns503AfterRetries()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.ServiceUnavailable);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var reservationId = await CreateReservationAsync(client);
 
             var response = await client.PostAsync($"/api/reservations/{reservationId}/payment", null);
@@ -46,7 +46,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_RetriesSendTheSameIdempotencyKey()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var reservationId = await CreateReservationAsync(client);
 
             await client.PostAsync($"/api/reservations/{reservationId}/payment", null);
@@ -58,12 +58,14 @@ namespace FlyReservation.IntegrationTests
 
         // The real API, but the payment provider's HTTP calls go to the fake handler.
         // The resilience handler from Program.cs stays in the pipeline, so retries really happen
-        private HttpClient CreateClientWith(FakePaymentHandler provider)
+        // Logged in as a new customer, who books and pays through this client
+        private Task<HttpClient> CreateClientWith(FakePaymentHandler provider)
         {
             return _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
                     services.AddHttpClient<IPaymentClient, PaymentClient>()
                         .ConfigurePrimaryHttpMessageHandler(() => provider)))
-                .CreateClient();
+                .CreateClient()
+                .LogInAsNewCustomerAsync();
         }
 
         private static async Task<int> CreateReservationAsync(HttpClient client)

@@ -7,10 +7,12 @@ namespace FlyReservation.IntegrationTests
 {
     public class FlightsEndpointTests : IClassFixture<FlyReservationApiFactory>
     {
-        private readonly HttpClient _client;
+        private readonly FlyReservationApiFactory _factory;
+        private readonly HttpClient _client;   // no token: flight reads and searches are public
 
         public FlightsEndpointTests(FlyReservationApiFactory factory)
         {
+            _factory = factory;
             _client = factory.CreateClient();
         }
 
@@ -89,9 +91,10 @@ namespace FlyReservation.IntegrationTests
             var flight = await _client.CreateFlightAsync(totalSeats: 10);       // price 900
             var (adminCopy, adminETag) = await _client.GetFlightForEditAsync(flight.Id);
 
-            // A passenger books a seat while the admin's form is open
-            var passenger = await _client.CreatePassengerAsync();
-            var booking = await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
+            // A customer books a seat while the admin's form is open
+            var customer = await _factory.CreateCustomerClientAsync();
+            var passenger = await customer.CreatePassengerAsync();
+            var booking = await customer.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
             Assert.Equal(HttpStatusCode.Created, booking.StatusCode);
 
             var response = await _client.PutFlightAsync(flight.Id, adminCopy.ToUpdateRequest() with { Price = 1200 }, adminETag);
@@ -147,9 +150,10 @@ namespace FlyReservation.IntegrationTests
             var flight = await CreateFlightOnRouteAsync("ERZ", "TZX", day.AddHours(10));
             var url = $"/api/flights/search?origin=ERZ&destination=TZX&date={day:yyyy-MM-dd}";
             await _client.GetFromJsonAsync<List<FlightResponse>>(url);   // the first search fills the cache
-            var passenger = await _client.CreatePassengerAsync();
+            var customer = await _factory.CreateCustomerClientAsync();
+            var passenger = await customer.CreatePassengerAsync();
 
-            var booking = await _client.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
+            var booking = await customer.PostAsJsonAsync("/api/reservations", new CreateReservationRequest(flight.Id, passenger.Id));
             booking.EnsureSuccessStatusCode();
 
             var results = await _client.GetFromJsonAsync<List<FlightResponse>>(url);

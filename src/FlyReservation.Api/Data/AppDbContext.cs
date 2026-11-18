@@ -48,6 +48,12 @@ namespace FlyReservation.Api.Data
 
                 // Optimistic concurrency, same as flights
                 entity.Property(p => p.Version).IsConcurrencyToken();
+
+                // Deleting an account must not silently delete its passengers and their bookings
+                entity.HasOne(p => p.User)
+                      .WithMany()
+                      .HasForeignKey(p => p.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<User>(entity =>

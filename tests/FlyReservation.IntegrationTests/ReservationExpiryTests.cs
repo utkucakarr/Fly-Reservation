@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace FlyReservation.IntegrationTests
 {
-    public class ReservationExpiryTests : IClassFixture<FlyReservationApiFactory>
+    public class ReservationExpiryTests : IClassFixture<FlyReservationApiFactory>, IAsyncLifetime
     {
         private readonly FlyReservationApiFactory _factory;
         private readonly HttpClient _client;
@@ -18,6 +18,11 @@ namespace FlyReservation.IntegrationTests
             _factory = factory;
             _client = factory.CreateClient();
         }
+
+        // Every test runs as a new, logged-in customer: their passengers and bookings belong to that account
+        public async Task InitializeAsync() => await _client.LogInAsNewCustomerAsync();
+
+        public Task DisposeAsync() => Task.CompletedTask;
 
         [Fact]
         public async Task CreateReservation_StartsPendingWithADeadline()
@@ -103,7 +108,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_ConfirmsTheReservation_AndTheJobLeavesItAlone()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
 
@@ -121,7 +126,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_Twice_ChargesOnce()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
 
@@ -138,7 +143,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_AfterDeadline_Returns409WithoutCharging()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
             await _factory.MakeOverdueAsync(reservation.Id);
@@ -153,7 +158,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_WhenProviderIsDown_KeepsTheOriginalDeadline()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.ServiceUnavailable);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
 
@@ -167,11 +172,11 @@ namespace FlyReservation.IntegrationTests
         [Fact]
         public async Task Worker_ExpiresReservationsWithoutAnyRequest()
         {
-            var client = _factory.WithWebHostBuilder(builder =>
+            var client = await _factory.WithWebHostBuilder(builder =>
             {
                 builder.UseSetting("Reservations:PaymentWindow", "00:00:01");
                 builder.UseSetting("Reservations:ExpiryCheckInterval", "00:00:00.200");
-            }).CreateClient();
+            }).CreateClient().LogInAsNewCustomerAsync();
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
 
@@ -192,7 +197,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_AfterPriceChange_ChargesThePriceAtBooking()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);          // price 900
             var reservation = await BookAsync(client, flight.Id);
 
@@ -210,7 +215,7 @@ namespace FlyReservation.IntegrationTests
         public async Task Pay_Again_AfterPriceChange_ReturnsTheChargedAmount()
         {
             var provider = new FakePaymentHandler(HttpStatusCode.OK);
-            var client = CreateClientWith(provider);
+            var client = await CreateClientWith(provider);
             var flight = await client.CreateFlightAsync(totalSeats: 1);
             var reservation = await BookAsync(client, flight.Id);
             var first = await client.PostAsync($"/api/reservations/{reservation.Id}/payment", null);   // 900 charged
@@ -224,12 +229,14 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal(1, provider.Calls);
         }
 
-        private HttpClient CreateClientWith(FakePaymentHandler provider)
+        // Logged in as a new customer, who books and pays through this client
+        private Task<HttpClient> CreateClientWith(FakePaymentHandler provider)
         {
             return _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
                     services.AddHttpClient<IPaymentClient, PaymentClient>()
                         .ConfigurePrimaryHttpMessageHandler(() => provider)))
-                .CreateClient();
+                .CreateClient()
+                .LogInAsNewCustomerAsync();
         }
 
         private static async Task<ReservationResponse> BookAsync(HttpClient client, int flightId)
@@ -242,9 +249,14 @@ namespace FlyReservation.IntegrationTests
             return (await response.Content.ReadFromJsonAsync<ReservationResponse>())!;
         }
 
+        // Read as the admin: several tests book through another client, which is another customer,
+        // and only the admin may see every customer's bookings
         private async Task<ReservationResponse> GetReservationAsync(int id)
         {
-            return (await _client.GetFromJsonAsync<ReservationResponse>($"/api/reservations/{id}"))!;
+            var response = await _client.SendAsAdminAsync(new HttpRequestMessage(HttpMethod.Get, $"/api/reservations/{id}"));
+            response.EnsureSuccessStatusCode();
+
+            return (await response.Content.ReadFromJsonAsync<ReservationResponse>())!;
         }
     }
 }

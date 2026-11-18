@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 
 namespace FlyReservation.IntegrationTests
 {
-    public class PassengersEndpointTests : IClassFixture<FlyReservationApiFactory>
+    public class PassengersEndpointTests : IClassFixture<FlyReservationApiFactory>, IAsyncLifetime
     {
         private readonly HttpClient _client;
 
@@ -11,6 +11,11 @@ namespace FlyReservation.IntegrationTests
         {
             _client = factory.CreateClient();
         }
+
+        // Every test runs as a new, logged-in customer: their passengers and bookings belong to that account
+        public async Task InitializeAsync() => await _client.LogInAsNewCustomerAsync();
+
+        public Task DisposeAsync() => Task.CompletedTask;
 
         // Lost update: two admins open the same passenger, both save; the second must not silently undo the first
         [Fact]

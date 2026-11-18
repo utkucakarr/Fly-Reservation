@@ -3,6 +3,15 @@
 # Type your AdminUser:Password (user secrets) here while testing. Do not commit it
 @adminPassword = CHANGE_ME
 
+
+### Register Endpoint
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{ "email": "alice@test.com", "password": "alice-password-123" }
+
+
+
 ### 1) Login: access token in the body, refresh token in an HttpOnly cookie (see the Set-Cookie response header)
 # @name login
 POST {{baseUrl}}/api/auth/login

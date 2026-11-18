@@ -106,6 +106,9 @@ namespace FlyReservation.Api.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<int?>("UserId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
@@ -114,6 +117,8 @@ namespace FlyReservation.Api.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Passengers");
                 });
@@ -252,6 +257,16 @@ namespace FlyReservation.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("FlyReservation.Api.Entities.Passenger", b =>
+                {
+                    b.HasOne("FlyReservation.Api.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("FlyReservation.Api.Entities.RefreshToken", b =>

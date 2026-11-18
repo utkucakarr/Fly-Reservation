@@ -1,3 +1,4 @@
+using FlyReservation.Api.Auth;
 using FlyReservation.Api.Caching;
 using FlyReservation.Api.Data;
 using FlyReservation.Api.Dtos;
@@ -48,16 +49,41 @@ namespace FlyReservation.Api.Services
             return reservations.Select(ToResponse).ToList();
         }
 
-        public async Task<ReservationResponse> GetByIdAsync(int id)
+        // The caller's own bookings, newest first. Not VisibleTo: for an admin, "mine" also means their own
+        public async Task<List<ReservationResponse>> GetMineAsync(CurrentUser user)
         {
-            var reservation = await FindWithDetailsAsync(id)
+            var reservations = await _context.Reservations
+                .AsNoTracking()
+                .Include(r => r.Flight)
+                .Include(r => r.Passenger)
+                .Where(r => r.Passenger.UserId == user.Id)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+
+            return reservations.Select(ToResponse).ToList();
+        }
+
+        public async Task<ReservationResponse> GetByIdAsync(int id, CurrentUser user)
+        {
+            var reservation = await _context.Reservations
+                .VisibleTo(user)
+                .AsNoTracking()
+                .Include(r => r.Flight)
+                .Include(r => r.Passenger)
+                .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");
 
             return ToResponse(reservation);
         }
 
-        public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request, string? idempotencyKey)
+        public async Task<ReservationResponse> CreateAsync(CreateReservationRequest request, string? idempotencyKey, CurrentUser user)
         {
+            // Only the caller's own passengers can be booked. Checked before the replay below: otherwise someone else's
+            // Idempotency-Key, sent with their flight and passenger ids, would return their reservation
+            var ownsPassenger = await _context.Passengers.VisibleTo(user).AnyAsync(p => p.Id == request.PassengerId);
+            if (!ownsPassenger)
+                throw new NotFoundException($"Passenger {request.PassengerId} not found.");
+
             // A retry with a known key gets the first result back instead of booking again
             if(idempotencyKey is not null)
             {
@@ -69,10 +95,6 @@ namespace FlyReservation.Api.Services
             // Read only to check that the flight exists and to get its number for the error message (no tracking)
             var flight = await _context.Flights.AsNoTracking().FirstOrDefaultAsync(f => f.Id == request.FlightId)
                 ?? throw new NotFoundException($"Flight {request.FlightId} not found.");
-
-            var passengerExists = await _context.Passengers.AnyAsync(p => p.Id == request.PassengerId);
-            if (!passengerExists)
-                throw new NotFoundException($"Passenger {request.PassengerId} not found.");
 
             var alreadyBooked = await _context.Reservations
                 .AnyAsync(r => r.FlightId == request.FlightId
@@ -151,9 +173,11 @@ namespace FlyReservation.Api.Services
             return ToResponse(created);
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task DeleteAsync(int id, CurrentUser user)
         {
+            // The owner check is in this WHERE. The later statements use the same id, and a reservation never changes owner
             var reservation = await _context.Reservations
+                   .VisibleTo(user)
                    .AsNoTracking()
                    .FirstOrDefaultAsync(r => r.Id == id)
                    ?? throw new NotFoundException($"Reservation {id} not found.");
@@ -176,9 +200,10 @@ namespace FlyReservation.Api.Services
             _logger.LogInformation("Reservation {PnrCode} cancelled", reservation.PnrCode);
         }
 
-        public async Task<ReservationPaymentResponse> PayAsync(int id)
+        public async Task<ReservationPaymentResponse> PayAsync(int id, CurrentUser user)
         {
             var reservation = await _context.Reservations
+                .VisibleTo(user)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(r => r.Id == id)
                 ?? throw new NotFoundException($"Reservation {id} not found.");

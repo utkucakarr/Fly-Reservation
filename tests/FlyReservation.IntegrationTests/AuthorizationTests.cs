@@ -113,24 +113,23 @@ namespace FlyReservation.IntegrationTests
             Assert.Equal(first!.Title, second!.Title);
         }
 
-        // Customers have no account: creating and reading their passenger record, booking and cancelling
-        // must keep working without a token
-        [Fact]
-        public async Task Customer_BooksAndCancelsWithoutToken()
+        // Since Adım 23c a customer needs an account: without a token nobody can create, read, change,
+        // book, pay or cancel. (The admin-only endpoints are in AdminEndpoints_WithoutToken_Return401)
+        [Theory]
+        [InlineData("POST", "/api/passengers")]
+        [InlineData("GET", "/api/passengers/mine")]
+        [InlineData("GET", "/api/passengers/1")]
+        [InlineData("PUT", "/api/passengers/1")]
+        [InlineData("POST", "/api/reservations")]
+        [InlineData("GET", "/api/reservations/mine")]
+        [InlineData("GET", "/api/reservations/1")]
+        [InlineData("DELETE", "/api/reservations/1")]
+        [InlineData("POST", "/api/reservations/1/payment")]
+        public async Task CustomerEndpoints_WithoutToken_Return401(string method, string url)
         {
-            var flight = await _client.CreateFlightAsync(totalSeats: 1);
-            var passenger = await _client.CreatePassengerAsync();
-            Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/passengers/{passenger.Id}")).StatusCode);
+            var response = await _client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url));
 
-            var booked = await _client.PostReservationAsync(
-                new CreateReservationRequest(flight.Id, passenger.Id), Guid.NewGuid().ToString());
-            var reservation = await booked.Content.ReadFromJsonAsync<ReservationResponse>();
-            var read = await _client.GetAsync($"/api/reservations/{reservation!.Id}");
-            var cancelled = await _client.DeleteAsync($"/api/reservations/{reservation.Id}");
-
-            Assert.Equal(HttpStatusCode.Created, booked.StatusCode);
-            Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-            Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         private async Task<HttpResponseMessage> DeleteFlightAsync(int id, string token)

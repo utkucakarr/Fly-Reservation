@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FlyReservation.IntegrationTests
 {
-    public class ReservationsEndpointTests : IClassFixture<FlyReservationApiFactory>
+    public class ReservationsEndpointTests : IClassFixture<FlyReservationApiFactory>, IAsyncLifetime
     {
         private readonly HttpClient _client;
 
@@ -13,6 +13,11 @@ namespace FlyReservation.IntegrationTests
         {
             _client = factory.CreateClient();
         }
+
+        // Every test runs as a new, logged-in customer: their passengers and bookings belong to that account
+        public async Task InitializeAsync() => await _client.LogInAsNewCustomerAsync();
+
+        public Task DisposeAsync() => Task.CompletedTask;
 
         [Fact]
         public async Task CreateReservation_WhenSmaePassengerBooksSameFlightTwice_Returns409AndTakesOneSeat()
