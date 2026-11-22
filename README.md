@@ -816,6 +816,7 @@ Nothing was left half-done: PostgreSQL ran the whole migration in one transactio
 | False error alarms | One expected 409 produced 2 `Error` logs from EF Core | EF Core command errors lowered to Debug; the handler decides severity → **2 → 0** false errors |
 | Logs lying about status codes | Client got `409`, the request log said `500` | Request logging moved outside the exception handler middleware |
 | Untestable business rule | The seat rule lived in a service that needs a real database | Moved into the `Flight` entity → 16 unit tests, ~70 ms |
+| Tests that depended on the developer's machine | With an admin in user secrets, all 74 integration tests failed locally (`42P01: relation "Users" does not exist`) while CI was green: the test host read the secrets and created the admin before its empty database was migrated | The test factory overrides those settings, so the tests use only what they set themselves |
 
 ## Known limitations
 
