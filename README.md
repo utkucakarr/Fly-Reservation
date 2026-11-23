@@ -139,7 +139,7 @@ Every error has the same shape: a ProblemDetails body with a `traceId` that find
 
 **Login** and **Admin** endpoints need `Authorization: Bearer <access token>`. **Login** endpoints accept any account but only reach the caller's own records (an admin reaches everyone's); someone else's record answers `404`. **Admin** endpoints need an admin's token.
 
-To try the API in the browser, run it and open **`http://localhost:5177/scalar`** (Development only): every endpoint with its request body and possible status codes, and a button to send the request. Ready-to-send requests are also in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
+To try the API in the browser, run it and open **`http://localhost:5177/scalar`** (Development only): every endpoint with its request body and possible status codes, and a button to send the request. For a **Login** or **Admin** endpoint, send `POST /api/auth/login` first and paste its `accessToken` into Scalar's Authentication box (Bearer); Scalar adds the `Bearer ` prefix and sends it with every protected request. Ready-to-send requests are also in the `.http` files under `src/FlyReservation.Api/` (Visual Studio / VS Code / Rider).
 
 <!-- 📸 docs/images/scalar-api-reference.png -->
 

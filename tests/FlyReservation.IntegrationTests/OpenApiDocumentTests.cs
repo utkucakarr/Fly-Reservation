@@ -43,5 +43,25 @@ namespace FlyReservation.IntegrationTests
 
             Assert.Equal(expected.Order().ToArray(), documented);
         }
+
+        // Scalar shows an "Authentication" box only if the document says how the API authenticates.
+        // Only endpoints that need a token should ask for one
+        [Fact]
+        public async Task OpenApi_DescribesTheBearerTokenOnProtectedEndpointsOnly()
+        {
+            using var document = JsonDocument.Parse(await _client.GetStringAsync("/openapi/v1.json"));
+            var root = document.RootElement;
+
+            var hasScheme = root.TryGetProperty("components", out var components)
+                && components.TryGetProperty("securitySchemes", out var schemes)
+                && schemes.TryGetProperty("Bearer", out _);
+            Assert.True(hasScheme, "The OpenAPI document has no Bearer security scheme");
+
+            var paths = root.GetProperty("paths");
+            Assert.True(paths.GetProperty("/api/Reservations/{id}").GetProperty("delete").TryGetProperty("security", out _));
+            Assert.True(paths.GetProperty("/api/Flights").GetProperty("post").TryGetProperty("security", out _));
+            Assert.False(paths.GetProperty("/api/Flights/{id}").GetProperty("get").TryGetProperty("security", out _));
+            Assert.False(paths.GetProperty("/api/Auth/login").GetProperty("post").TryGetProperty("security", out _));
+        }
     }
 }
