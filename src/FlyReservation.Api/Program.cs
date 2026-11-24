@@ -6,6 +6,7 @@ using FlyReservation.Api.Data;
 using FlyReservation.Api.Entities;
 using FlyReservation.Api.ExceptionHandling;
 using FlyReservation.Api.Filters;
+using FlyReservation.Api.OpenApi;
 using FlyReservation.Api.Payments;
 using FlyReservation.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -32,7 +33,12 @@ builder.Services.AddControllers(options => options.Filters.Add<FluentValidationF
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    // Scalar's Authentication box: the token is entered once and sent with every protected request
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+    options.AddOperationTransformer<BearerSecurityRequirementTransformer>();
+});
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("FlyReservationDb"))
@@ -137,7 +143,9 @@ app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();               // /openapi/v1.json
-    app.MapScalarApiReference();    // /scalar: a page that reads that document and sends requests from the browser
+    // /scalar: a page that reads that document and sends requests from the browser.
+    // The token box opens on the Bearer scheme; the token is not kept after a page reload (no localStorage)
+    app.MapScalarApiReference(options => options.AddPreferredSecuritySchemes([BearerSecuritySchemeTransformer.SchemeName]));
 }
 
 app.UseHttpsRedirection();
