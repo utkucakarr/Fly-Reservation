@@ -1,0 +1,12 @@
+main {
+  font-family: sans-serif;
+  max-width: 640px;
+  margin: 2rem auto;
+}
+
+.card {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: .75rem;
+  margin: .5rem 0;
+}
