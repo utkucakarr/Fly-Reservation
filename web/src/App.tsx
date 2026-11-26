@@ -1,12 +1,26 @@
-import { useState } from 'react'
-import { sampleFlights } from './data'
+import { useEffect, useState } from 'react'
+import { getFlights } from './api'
 import { FlightCard } from './FlightCard'
+import type { FlightResponse } from './types'
 import './App.css'
+
+type LoadStatus = 'loading' | 'error' | 'ready'
 
 function App() {
   // State: data that redraws the screen when it changes
-  const [flights, setFlights] = useState(sampleFlights)
+  const [flights, setFlights] = useState<FlightResponse[]>([])
+  const [status, setStatus] = useState<LoadStatus>('loading')
   const [search, setSearch] = useState('')
+
+  // Runs after the first render, not during it: load the flights once
+  useEffect(() => {
+    getFlights()
+      .then(page => {
+        setFlights(page.items)
+        setStatus('ready')
+      })
+      .catch(() => setStatus('error'))
+  }, [])
 
   // Derived from state: recalculated on every render, never stored on its own
   const text = search.toLowerCase()
@@ -14,9 +28,16 @@ function App() {
   const totalSeats = flights.reduce((sum, f) => sum + f.availableSeats, 0)
 
   function reserve(id: number) {
-    const flight = flights.find(f => f.id === id)!
-    flight.availableSeats--
-    setFlights(flights)
+    // Never change state in place, hand React a new one: a new object for this flight, the others stay as they are
+    setFlights(current => current.map(f => (f.id === id ? { ...f, availableSeats: f.availableSeats - 1 } : f)))
+  }
+
+  if (status === 'loading') {
+    return <main><p>Uçuşlar yükleniyor...</p></main>
+  }
+
+  if (status === 'error') {
+    return <main><p>Uçuşlar yüklenemedi. API çalışıyor mu?</p></main>
   }
 
   return (
@@ -25,9 +46,10 @@ function App() {
       <p>
         Toplam boş koltuk: <strong>{totalSeats}</strong>
       </p>
-      <input placeholder="Şehir ara (ör. Ankara)" value={search} onChange={e => setSearch(e.target.value)} />
-      {visibleFlights.map((f, index) => (
-        <FlightCard key={index} flight={f} onReserve={reserve} />
+      <input placeholder="Şehir kodu ara (ör. IST)" value={search} onChange={e => setSearch(e.target.value)} />
+      {visibleFlights.length === 0 && <p>Aramaya uyan uçuş yok.</p>}
+      {visibleFlights.map(f => (
+        <FlightCard key={f.id} flight={f} onReserve={reserve} />
       ))}
     </main>
   )
